@@ -1,0 +1,15 @@
+fastapi
+aiohttp
+aiomysql
+openai
+uvicorn
+python-dotenv
+pytest
+anyio
+pytest-asyncio
+pytest-tornasync
+pytest-trio
+pytest-twisted
+twisted
+dotenv
+cryptography

@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.log
+*.sqlite3
+*.db
+*.env
+.env
+
+# Byte-compiled / optimized / DLL files
+*.so
+*.dylib
+*.dll
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebooks (if any)
+.ipynb_checkpoints
+
+# VS Code
+.vscode/
+
+# Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Ollama cache (if any local logs or model storage is made)
+ollama/
+
+# MacOS
+.DS_Store
+
+# UI build artifacts (if any JS/React frontend is added later)
+node_modules/
+npm-debug.log
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# Pip tools
+pip-log.txt
+pip-delete-this-directory.txt
+
+# extra
+structure.txt 
