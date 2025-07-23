@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: Agentic-RAG-Chatbot
+    network_mode: host
+    volumes:
+      - ..:/workspaces:cached
+    command: sleep infinity
