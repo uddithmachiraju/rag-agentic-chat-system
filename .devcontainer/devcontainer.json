@@ -20,7 +20,7 @@
 	],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "pip install -r requirements.txt --break-system-packages",
+	"postCreateCommand": "pip install -r .devcontainer/requirements.txt --break-system-packages",
 
 	// Configure tool-specific properties.
 	"customizations": {
