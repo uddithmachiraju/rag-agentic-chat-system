@@ -53,12 +53,21 @@ class BaseParser(ABC, LoggerMixin):
         content = content.replace('\x00', '')
         return content 
     
-    def _create_chunk(self, content: str, chunk_index: int, chunk_type: str = "text", page_number: int = None, metadata: Dict[str, Any] = None, document_id: str = None) -> DocumentChunk:
-        return DocumentChunk( 
+    def _create_chunk(self,content: str, chunk_index: int, chunk_type: str = "text", page_number: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None,
+        document_id: Optional[str] = None, start_char: Optional[int] = None, end_char: Optional[int] = None, heading_level: Optional[int] = None, parent_section: Optional[str] = None
+    ) -> DocumentChunk:
+        if document_id is None:
+            raise ValueError("document_id is required")
+
+        return DocumentChunk(
             document_id = document_id,
-            content = content, 
+            content = content,
             chunk_index = chunk_index,
             chunk_type = ChunkType(chunk_type),
             page_number = page_number,
-            metadata = metadata or {} 
+            start_char = start_char,
+            end_char = end_char,
+            heading_level = heading_level,
+            parent_section = parent_section,
+            metadata = metadata or {}
         )

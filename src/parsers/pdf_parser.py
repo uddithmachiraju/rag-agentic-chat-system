@@ -206,56 +206,50 @@ class PDFParser(BaseParser):
             self.logger.error(f"Metadata extraction failed: {e}")
             return DocumentMetadata(page_count=doc.page_count if doc else 0)
     
-    async def _extract_text_content(
-        self, 
-        document_id: str, 
-        doc: fitz.Document, 
-        options: ProcessingOptions
-    ) -> List:
-        """Extract text content with intelligent chunking."""
-        
+    async def _extract_text_content(self, document_id: str, doc: fitz.Document, options: ProcessingOptions) -> List:
         chunks = []
         chunk_index = 0
-        
+        char_pos_accum = 0
+
         for page_num in range(doc.page_count):
             try:
                 page = doc[page_num]
-                
-                # Extract text blocks for better structure preservation
+
                 blocks = page.get_text("blocks")
-                
                 page_text = ""
                 block_texts = []
-                
                 for block in blocks:
-                    if len(block) >= 5:  # Text block
+                    if len(block) >= 5:
                         block_text = block[4].strip()
                         if block_text:
                             block_texts.append(block_text)
                             page_text += block_text + "\n\n"
-                
                 if not page_text.strip():
                     continue
-                
-                # Clean the text
+
                 page_text = await self._preprocess_content(page_text)
-                
-                # Create chunks based on options
+
                 if options.chunk_size > 0:
                     page_chunks = self._chunk_text(
-                        page_text, 
-                        options.chunk_size, 
+                        page_text,
+                        options.chunk_size,
                         options.chunk_overlap,
                         page_num + 1
                     )
-                    
+                    running_offset = 0
                     for chunk_text in page_chunks:
+                        start_char = char_pos_accum + page_text.find(chunk_text, running_offset)
+                        end_char = start_char + len(chunk_text)
+                        running_offset = start_char - char_pos_accum + len(chunk_text)
+
                         chunk = self._create_chunk(
-                            document_id = document_id, 
+                            document_id=document_id,
                             content=chunk_text,
                             chunk_index=chunk_index,
                             chunk_type="text",
                             page_number=page_num + 1,
+                            start_char=start_char,
+                            end_char=end_char,
                             metadata={
                                 "block_count": len(block_texts),
                                 "extraction_method": "pymupdf_blocks"
@@ -263,13 +257,18 @@ class PDFParser(BaseParser):
                         )
                         chunks.append(chunk)
                         chunk_index += 1
+                    char_pos_accum += len(page_text)
                 else:
-                    # Single chunk per page
+                    start_char = char_pos_accum
+                    end_char = start_char + len(page_text)
                     chunk = self._create_chunk(
+                        document_id=document_id,
                         content=page_text,
                         chunk_index=chunk_index,
                         chunk_type="text",
                         page_number=page_num + 1,
+                        start_char=start_char,
+                        end_char=end_char,
                         metadata={
                             "block_count": len(block_texts),
                             "extraction_method": "pymupdf_blocks"
@@ -277,12 +276,13 @@ class PDFParser(BaseParser):
                     )
                     chunks.append(chunk)
                     chunk_index += 1
-                    
+                    char_pos_accum += len(page_text)
+
             except Exception as e:
                 self.logger.error(f"Error extracting text from page {page_num + 1}: {e}")
                 continue
-        
-        return chunks 
+
+        return chunks
     
     async def _extract_tables(self, doc: fitz.Document) -> List:
         """Extract tables from PDF using PyMuPDF's table detection."""
