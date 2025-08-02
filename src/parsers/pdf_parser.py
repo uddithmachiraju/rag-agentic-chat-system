@@ -66,34 +66,30 @@ class PDFParser(BaseParser):
                 # Extract metadata
                 metadata = await self._extract_metadata(doc, file_path)
                 
-                # Extract content based on options
-                chunks = []
+                # Extract content based on options with improved approach
+                all_chunks = []
+                global_chunk_index = 0
                 
-                if options.extract_tables:
-                    table_chunks = await self._extract_tables(doc) 
-                    chunks.extend(table_chunks)
+                # Extract content page by page to maintain order and context
+                for page_num in range(doc.page_count):
+                    page_chunks, global_chunk_index = await self._extract_page_content(
+                        doc, page_num, document_id, options, global_chunk_index
+                    )
+                    all_chunks.extend(page_chunks)
                 
-                # Extract text content (main content)
-                text_chunks = await self._extract_text_content(document_id, doc, options) 
-                chunks.extend(text_chunks)
-                
-                if options.extract_images:
-                    image_chunks = await self._extract_images(doc) 
-                    chunks.extend(image_chunks)
-                
-                # Sort chunks by page and position
-                chunks = self._sort_chunks_by_position(chunks)
+                # Sort chunks by page and position to ensure proper order
+                all_chunks = self._sort_chunks_by_position(all_chunks)
                 
                 processing_time = time.time() - start_time
                 
                 self.logger.info(
-                    f"PDF parsing completed: {len(chunks)} chunks extracted "
+                    f"PDF parsing completed: {len(all_chunks)} chunks extracted "
                     f"in {processing_time:.2f}s"
                 )
                 
                 return ParseResult(
                     success=True,
-                    chunks=chunks,
+                    chunks=all_chunks,
                     metadata=metadata,
                     processing_time=processing_time
                 )
@@ -111,6 +107,470 @@ class PDFParser(BaseParser):
                 error_message=error_msg,
                 processing_time=processing_time
             )
+    
+    async def _extract_page_content(
+        self, 
+        doc: fitz.Document, 
+        page_num: int, 
+        document_id: str, 
+        options: ProcessingOptions,
+        chunk_index: int
+    ) -> Tuple[List, int]:
+        """Extract all content from a single page in proper order."""
+        
+        page_chunks = []
+        page = doc[page_num]
+        
+        try:
+            # Get page dimensions for better positioning
+            page_rect = page.rect
+            
+            # Extract tables first (they often contain structured data)
+            if options.extract_tables:
+                table_chunks, chunk_index = await self._extract_page_tables(
+                    page, page_num, document_id, chunk_index
+                )
+                page_chunks.extend(table_chunks)
+            
+            # Extract images with their positions
+            if options.extract_images:
+                image_chunks, chunk_index = await self._extract_page_images(
+                    page, page_num, document_id, chunk_index
+                )
+                page_chunks.extend(image_chunks)
+            
+            # Extract text content with multiple fallback methods
+            text_chunks, chunk_index = await self._extract_page_text_comprehensive(
+                page, page_num, document_id, options, chunk_index
+            )
+            page_chunks.extend(text_chunks)
+            
+            # Extract any remaining content using alternative methods
+            if not text_chunks or len(text_chunks) == 0:
+                fallback_chunks, chunk_index = await self._extract_text_fallback(
+                    page, page_num, document_id, options, chunk_index
+                )
+                page_chunks.extend(fallback_chunks)
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting content from page {page_num + 1}: {e}")
+            # Create a minimal chunk to avoid losing the page entirely
+            error_chunk = self._create_chunk(
+                document_id=document_id,
+                content=f"[Error extracting content from page {page_num + 1}: {str(e)}]",
+                chunk_index=chunk_index,
+                chunk_type="text",
+                page_number=page_num + 1,
+                start_char=0,
+                end_char=0,
+                metadata={"extraction_error": True, "error_message": str(e)}
+            )
+            page_chunks.append(error_chunk)
+            chunk_index += 1
+        
+        return page_chunks, chunk_index
+    
+    async def _extract_page_text_comprehensive(
+        self, 
+        page: fitz.Page, 
+        page_num: int, 
+        document_id: str, 
+        options: ProcessingOptions,
+        chunk_index: int
+    ) -> Tuple[List, int]:
+        """Extract text content using multiple methods for comprehensive coverage."""
+        
+        chunks = []
+        
+        try:
+            # Method 1: Block-based extraction (most structured)
+            text_content = ""
+            blocks = page.get_text("blocks")
+            block_texts = []
+            
+            for block in blocks:
+                if len(block) >= 5:  # Text block
+                    block_text = block[4].strip()
+                    if block_text and len(block_text) > 2:  # Filter very short blocks
+                        block_texts.append({
+                            'text': block_text,
+                            'bbox': block[:4],  # x0, y0, x1, y1
+                            'block_no': block[5] if len(block) > 5 else 0
+                        })
+            
+            # Sort blocks by position (top to bottom, left to right)
+            block_texts.sort(key=lambda x: (x['bbox'][1], x['bbox'][0]))
+            
+            # Combine blocks into text content
+            for block_info in block_texts:
+                text_content += block_info['text'] + "\n\n"
+            
+            # If block method fails, try alternative methods
+            if not text_content.strip():
+                # Method 2: Dictionary-based extraction
+                text_dict = page.get_text("dict")
+                text_content = self._extract_from_text_dict(text_dict)
+            
+            if not text_content.strip():
+                # Method 3: Simple text extraction
+                text_content = page.get_text()
+            
+            if not text_content.strip():
+                # Method 4: Word-level extraction
+                words = page.get_text("words")
+                text_content = " ".join([word[4] for word in words if len(word) > 4])
+            
+            # Preprocess the extracted text
+            if text_content.strip():
+                text_content = await self._preprocess_content(text_content)
+                
+                # Create chunks based on options
+                if options.chunk_size > 0:
+                    text_chunks = self._chunk_text_advanced(
+                        text_content,
+                        options.chunk_size,
+                        options.chunk_overlap,
+                        page_num + 1
+                    )
+                    
+                    char_offset = 0
+                    for chunk_text in text_chunks:
+                        if chunk_text.strip():
+                            chunk = self._create_chunk(
+                                document_id=document_id,
+                                content=chunk_text,
+                                chunk_index=chunk_index,
+                                chunk_type="text",
+                                page_number=page_num + 1,
+                                start_char=char_offset,
+                                end_char=char_offset + len(chunk_text),
+                                metadata={
+                                    "block_count": len(block_texts),
+                                    "extraction_method": "comprehensive_blocks",
+                                    "page_area": page.rect.width * page.rect.height
+                                }
+                            )
+                            chunks.append(chunk)
+                            chunk_index += 1
+                            char_offset += len(chunk_text)
+                else:
+                    # Single chunk for entire page
+                    chunk = self._create_chunk(
+                        document_id=document_id,
+                        content=text_content,
+                        chunk_index=chunk_index,
+                        chunk_type="text",
+                        page_number=page_num + 1,
+                        start_char=0,
+                        end_char=len(text_content),
+                        metadata={
+                            "block_count": len(block_texts),
+                            "extraction_method": "comprehensive_blocks",
+                            "page_area": page.rect.width * page.rect.height
+                        }
+                    )
+                    chunks.append(chunk)
+                    chunk_index += 1
+        
+        except Exception as e:
+            self.logger.error(f"Error in comprehensive text extraction for page {page_num + 1}: {e}")
+        
+        return chunks, chunk_index
+    
+    def _extract_from_text_dict(self, text_dict: dict) -> str:
+        """Extract text from PyMuPDF text dictionary format."""
+        
+        text_content = ""
+        
+        try:
+            if "blocks" in text_dict:
+                for block in text_dict["blocks"]:
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            if "spans" in line:
+                                line_text = ""
+                                for span in line["spans"]:
+                                    if "text" in span:
+                                        line_text += span["text"]
+                                if line_text.strip():
+                                    text_content += line_text + "\n"
+                        text_content += "\n"  # Paragraph break
+        except Exception as e:
+            self.logger.debug(f"Error extracting from text dict: {e}")
+        
+        return text_content
+    
+    async def _extract_text_fallback(
+        self, 
+        page: fitz.Page, 
+        page_num: int, 
+        document_id: str, 
+        options: ProcessingOptions,
+        chunk_index: int
+    ) -> Tuple[List, int]:
+        """Fallback text extraction methods for difficult PDFs."""
+        
+        chunks = []
+        
+        try:
+            # Try OCR-like approach by extracting individual characters
+            # This can help with PDFs that have unusual text encoding
+            page_text = ""
+            
+            # Method 1: Extract by text objects
+            text_objects = []
+            try:
+                # Get all text instances on the page
+                text_instances = page.search_for("")  # This might not work as expected
+                # Alternative: use get_textpage for low-level access
+                textpage = page.get_textpage()
+                if textpage:
+                    page_text = textpage.extractText()
+                    textpage = None  # Clean up
+            except:
+                pass
+            
+            # Method 2: Try different text extraction flags
+            if not page_text.strip():
+                try:
+                    page_text = page.get_text(flags=fitz.TEXTFLAGS_TEXT)
+                except:
+                    pass
+            
+            # Method 3: Extract using raw text
+            if not page_text.strip():
+                try:
+                    page_text = page.get_text("rawtext")
+                except:
+                    pass
+            
+            if page_text.strip():
+                page_text = await self._preprocess_content(page_text)
+                
+                chunk = self._create_chunk(
+                    document_id=document_id,
+                    content=page_text,
+                    chunk_index=chunk_index,
+                    chunk_type="text",
+                    page_number=page_num + 1,
+                    start_char=0,
+                    end_char=len(page_text),
+                    metadata={
+                        "extraction_method": "fallback",
+                        "fallback_reason": "primary_extraction_failed"
+                    }
+                )
+                chunks.append(chunk)
+                chunk_index += 1
+            else:
+                # Last resort: create a placeholder for the page
+                placeholder_text = f"[Page {page_num + 1} - Content could not be extracted]"
+                chunk = self._create_chunk(
+                    document_id=document_id,
+                    content=placeholder_text,
+                    chunk_index=chunk_index,
+                    chunk_type="text",
+                    page_number=page_num + 1,
+                    start_char=0,
+                    end_char=len(placeholder_text),
+                    metadata={
+                        "extraction_method": "placeholder",
+                        "extraction_failed": True
+                    }
+                )
+                chunks.append(chunk)
+                chunk_index += 1
+        
+        except Exception as e:
+            self.logger.error(f"Fallback extraction failed for page {page_num + 1}: {e}")
+        
+        return chunks, chunk_index
+    
+    async def _extract_page_tables(
+        self, 
+        page: fitz.Page, 
+        page_num: int, 
+        document_id: str,
+        chunk_index: int
+    ) -> Tuple[List, int]:
+        """Extract tables from a single page."""
+        
+        chunks = []
+        
+        try:
+            # Find tables on the page
+            tables = page.find_tables()
+            
+            for table_index, table in enumerate(tables):
+                try:
+                    # Extract table data
+                    table_data = table.extract()
+                    
+                    if not table_data or not any(any(cell for cell in row if cell) for row in table_data):
+                        continue
+                    
+                    # Convert table to readable format
+                    table_text = self._format_table_as_text(table_data)
+                    
+                    if table_text.strip():
+                        chunk = self._create_chunk(
+                            document_id=document_id,
+                            content=table_text,
+                            chunk_index=chunk_index,
+                            chunk_type="table",
+                            page_number=page_num + 1,
+                            start_char=0,
+                            end_char=len(table_text),
+                            metadata={
+                                "table_index": table_index,
+                                "rows": len(table_data),
+                                "columns": len(table_data[0]) if table_data else 0,
+                                "extraction_method": "pymupdf_tables",
+                                "bbox": list(table.bbox) if hasattr(table, 'bbox') else None
+                            }
+                        )
+                        chunks.append(chunk)
+                        chunk_index += 1
+                        
+                except Exception as e:
+                    self.logger.error(f"Error extracting table {table_index} from page {page_num + 1}: {e}")
+                    continue
+        
+        except Exception as e:
+            self.logger.error(f"Error finding tables on page {page_num + 1}: {e}")
+        
+        return chunks, chunk_index
+    
+    async def _extract_page_images(
+        self, 
+        page: fitz.Page, 
+        page_num: int, 
+        document_id: str,
+        chunk_index: int
+    ) -> Tuple[List, int]:
+        """Extract images from a single page."""
+        
+        chunks = []
+        
+        try:
+            # Get image list
+            image_list = page.get_images()
+            
+            for img_index, img in enumerate(image_list):
+                try:
+                    # Get image reference
+                    xref = img[0]
+                    
+                    # Get image data
+                    base_image = page.parent.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    image_ext = base_image["ext"]
+                    
+                    # Create image hash for identification
+                    image_hash = hashlib.md5(image_bytes).hexdigest()
+                    
+                    # Create descriptive content
+                    image_description = f"Image {img_index + 1} on page {page_num + 1}"
+                    
+                    # Try to extract any surrounding text (caption detection)
+                    surrounding_text = self._extract_image_context(page, img)
+                    
+                    if surrounding_text:
+                        image_description += f"\nContext: {surrounding_text}"
+                    
+                    chunk = self._create_chunk(
+                        document_id=document_id,
+                        content=image_description,
+                        chunk_index=chunk_index,
+                        chunk_type="image",
+                        page_number=page_num + 1,
+                        start_char=0,
+                        end_char=len(image_description),
+                        metadata={
+                            "image_index": img_index,
+                            "image_hash": image_hash,
+                            "image_format": image_ext,
+                            "image_size": len(image_bytes),
+                            "extraction_method": "pymupdf_images",
+                            "xref": xref
+                        }
+                    )
+                    chunks.append(chunk)
+                    chunk_index += 1
+                    
+                except Exception as e:
+                    self.logger.error(f"Error extracting image {img_index} from page {page_num + 1}: {e}")
+                    continue
+        
+        except Exception as e:
+            self.logger.error(f"Error extracting images from page {page_num + 1}: {e}")
+        
+        return chunks, chunk_index
+    
+    def _chunk_text_advanced(
+        self, 
+        text: str, 
+        chunk_size: int, 
+        overlap: int,
+        page_number: int
+    ) -> List[str]:
+        """Advanced text chunking with better boundary detection."""
+        
+        if len(text) <= chunk_size:
+            return [text]
+        
+        chunks = []
+        start = 0
+        
+        # Split text into sentences first for better chunking
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        current_chunk = ""
+        
+        for sentence in sentences:
+            # Check if adding this sentence would exceed chunk size
+            potential_chunk = current_chunk + (" " if current_chunk else "") + sentence
+            
+            if len(potential_chunk) <= chunk_size:
+                current_chunk = potential_chunk
+            else:
+                # Save current chunk if it has content
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+                
+                # Start new chunk with current sentence
+                if len(sentence) <= chunk_size:
+                    current_chunk = sentence
+                else:
+                    # Sentence is too long, split it further
+                    words = sentence.split()
+                    temp_chunk = ""
+                    for word in words:
+                        if len(temp_chunk + " " + word) <= chunk_size:
+                            temp_chunk += (" " if temp_chunk else "") + word
+                        else:
+                            if temp_chunk.strip():
+                                chunks.append(temp_chunk.strip())
+                            temp_chunk = word
+                    current_chunk = temp_chunk
+        
+        # Add the last chunk
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+        
+        # Apply overlap if specified
+        if overlap > 0 and len(chunks) > 1:
+            overlapped_chunks = []
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    overlapped_chunks.append(chunk)
+                else:
+                    # Add overlap from previous chunk
+                    prev_chunk = chunks[i-1]
+                    overlap_text = prev_chunk[-overlap:] if len(prev_chunk) > overlap else prev_chunk
+                    overlapped_chunks.append(overlap_text + " " + chunk)
+            return overlapped_chunks
+        
+        return chunks
     
     async def _open_pdf_safely(self, file_path: str) -> Optional[fitz.Document]:
         """Safely open PDF document with error handling."""
@@ -206,228 +666,46 @@ class PDFParser(BaseParser):
             self.logger.error(f"Metadata extraction failed: {e}")
             return DocumentMetadata(page_count=doc.page_count if doc else 0)
     
-    async def _extract_text_content(self, document_id: str, doc: fitz.Document, options: ProcessingOptions) -> List:
-        chunks = []
-        chunk_index = 0
-        char_pos_accum = 0
-
-        for page_num in range(doc.page_count):
-            try:
-                page = doc[page_num]
-
-                blocks = page.get_text("blocks")
-                page_text = ""
-                block_texts = []
-                for block in blocks:
-                    if len(block) >= 5:
-                        block_text = block[4].strip()
-                        if block_text:
-                            block_texts.append(block_text)
-                            page_text += block_text + "\n\n"
-                if not page_text.strip():
-                    continue
-
-                page_text = await self._preprocess_content(page_text)
-
-                if options.chunk_size > 0:
-                    page_chunks = self._chunk_text(
-                        page_text,
-                        options.chunk_size,
-                        options.chunk_overlap,
-                        page_num + 1
-                    )
-                    running_offset = 0
-                    for chunk_text in page_chunks:
-                        start_char = char_pos_accum + page_text.find(chunk_text, running_offset)
-                        end_char = start_char + len(chunk_text)
-                        running_offset = start_char - char_pos_accum + len(chunk_text)
-
-                        chunk = self._create_chunk(
-                            document_id=document_id,
-                            content=chunk_text,
-                            chunk_index=chunk_index,
-                            chunk_type="text",
-                            page_number=page_num + 1,
-                            start_char=start_char,
-                            end_char=end_char,
-                            metadata={
-                                "block_count": len(block_texts),
-                                "extraction_method": "pymupdf_blocks"
-                            }
-                        )
-                        chunks.append(chunk)
-                        chunk_index += 1
-                    char_pos_accum += len(page_text)
-                else:
-                    start_char = char_pos_accum
-                    end_char = start_char + len(page_text)
-                    chunk = self._create_chunk(
-                        document_id=document_id,
-                        content=page_text,
-                        chunk_index=chunk_index,
-                        chunk_type="text",
-                        page_number=page_num + 1,
-                        start_char=start_char,
-                        end_char=end_char,
-                        metadata={
-                            "block_count": len(block_texts),
-                            "extraction_method": "pymupdf_blocks"
-                        }
-                    )
-                    chunks.append(chunk)
-                    chunk_index += 1
-                    char_pos_accum += len(page_text)
-
-            except Exception as e:
-                self.logger.error(f"Error extracting text from page {page_num + 1}: {e}")
-                continue
-
-        return chunks
-    
-    async def _extract_tables(self, doc: fitz.Document) -> List:
-        """Extract tables from PDF using PyMuPDF's table detection."""
-        
-        chunks = []
-        chunk_index = 0
-        
-        for page_num in range(doc.page_count):
-            try:
-                page = doc[page_num]
-                
-                # Find tables on the page
-                tables = page.find_tables()
-                
-                for table_index, table in enumerate(tables):
-                    try:
-                        # Extract table data
-                        table_data = table.extract()
-                        print(table_data)
-                        
-                        if not table_data:
-                            continue
-                        
-                        # Convert table to readable format
-                        table_text = self._format_table_as_text(table_data)
-                        
-                        if table_text.strip():
-                            chunk = self._create_chunk(
-                                content=table_text,
-                                chunk_index=chunk_index,
-                                chunk_type="table",
-                                page_number=page_num + 1,
-                                metadata={
-                                    "table_index": table_index,
-                                    "rows": len(table_data),
-                                    "columns": len(table_data[0]) if table_data else 0,
-                                    "extraction_method": "pymupdf_tables",
-                                    "bbox": table.bbox  # Bounding box coordinates
-                                }
-                            )
-                            chunks.append(chunk)
-                            chunk_index += 1
-                            
-                    except Exception as e:
-                        self.logger.error(f"Error extracting table {table_index} from page {page_num + 1}: {e}")
-                        continue
-                        
-            except Exception as e:
-                self.logger.error(f"Error finding tables on page {page_num + 1}: {e}")
-                continue
-        
-        return chunks
-    
-    async def _extract_images(self, doc: fitz.Document) -> List:
-        """Extract images and their descriptions from PDF."""
-        
-        chunks = []
-        chunk_index = 0
-        
-        for page_num in range(doc.page_count):
-            try:
-                page = doc[page_num]
-                
-                # Get image list
-                image_list = page.get_images()
-                
-                for img_index, img in enumerate(image_list):
-                    try:
-                        # Get image reference
-                        xref = img[0]
-                        
-                        # Get image data
-                        base_image = doc.extract_image(xref)
-                        image_bytes = base_image["image"]
-                        image_ext = base_image["ext"]
-                        
-                        # Create image hash for identification
-                        image_hash = hashlib.md5(image_bytes).hexdigest()
-                        
-                        # Create descriptive content
-                        image_description = f"Image {img_index + 1} on page {page_num + 1}"
-                        
-                        # Try to extract any surrounding text (caption detection)
-                        # This is a simplified approach - could be enhanced
-                        surrounding_text = self._extract_image_context(page, img)
-                        
-                        if surrounding_text:
-                            image_description += f"\nContext: {surrounding_text}"
-                        
-                        chunk = self._create_chunk(
-                            content=image_description,
-                            chunk_index=chunk_index,
-                            chunk_type="image",
-                            page_number=page_num + 1,
-                            metadata={
-                                "image_index": img_index,
-                                "image_hash": image_hash,
-                                "image_format": image_ext,
-                                "image_size": len(image_bytes),
-                                "extraction_method": "pymupdf_images",
-                                "xref": xref
-                            }
-                        )
-                        chunks.append(chunk)
-                        chunk_index += 1
-                        
-                    except Exception as e:
-                        self.logger.error(f"Error extracting image {img_index} from page {page_num + 1}: {e}")
-                        continue
-                        
-            except Exception as e:
-                self.logger.error(f"Error extracting images from page {page_num + 1}: {e}")
-                continue
-        
-        return chunks
-    
     def _format_table_as_text(self, table_data: List[List[str]]) -> str:
         """Format table data as readable text."""
         
         if not table_data:
             return ""
         
+        # Filter out empty rows
+        filtered_data = [row for row in table_data if any(cell and str(cell).strip() for cell in row)]
+        
+        if not filtered_data:
+            return ""
+        
         # Calculate column widths
         col_widths = []
-        for col_idx in range(len(table_data[0])):
+        max_cols = max(len(row) for row in filtered_data)
+        
+        for col_idx in range(max_cols):
             max_width = max(
-                len(str(row[col_idx]) if col_idx < len(row) else "") 
-                for row in table_data
+                len(str(row[col_idx]).strip() if col_idx < len(row) and row[col_idx] else "") 
+                for row in filtered_data
             )
-            col_widths.append(max(max_width, 10))  # Minimum width of 10
+            col_widths.append(max(max_width, 3))  # Minimum width of 3
         
         # Format table
         formatted_lines = []
         
-        for row_idx, row in enumerate(table_data):
+        for row_idx, row in enumerate(filtered_data):
             formatted_row = []
-            for col_idx, cell in enumerate(row):
+            for col_idx in range(max_cols):
+                cell = row[col_idx] if col_idx < len(row) else ""
+                cell_str = str(cell).strip() if cell else ""
                 if col_idx < len(col_widths):
-                    cell_str = str(cell) if cell else ""
                     formatted_row.append(cell_str.ljust(col_widths[col_idx]))
+                else:
+                    formatted_row.append(cell_str)
             
             formatted_lines.append(" | ".join(formatted_row))
             
             # Add separator after header
-            if row_idx == 0 and len(table_data) > 1:
+            if row_idx == 0 and len(filtered_data) > 1:
                 separator = " | ".join("-" * width for width in col_widths)
                 formatted_lines.append(separator)
         
@@ -445,7 +723,9 @@ class PDFParser(BaseParser):
                 r'Figure\s+\d+[:\.].*',
                 r'Fig\.\s+\d+[:\.].*',
                 r'Image\s+\d+[:\.].*',
-                r'Photo\s+\d+[:\.].*'
+                r'Photo\s+\d+[:\.].*',
+                r'Chart\s+\d+[:\.].*',
+                r'Diagram\s+\d+[:\.].*'
             ]
             
             for pattern in caption_patterns:
@@ -458,53 +738,8 @@ class PDFParser(BaseParser):
         except Exception:
             return ""
     
-    def _chunk_text(
-        self, 
-        text: str, 
-        chunk_size: int, 
-        overlap: int,
-        page_number: int
-    ) -> List[str]:
-        """Split text into overlapping chunks."""
-        
-        if len(text) <= chunk_size:
-            return [text]
-        
-        chunks = []
-        start = 0
-        
-        while start < len(text):
-            end = start + chunk_size
-            
-            # Try to break at sentence or paragraph boundary
-            if end < len(text):
-                # Look for sentence endings
-                for boundary in ['. ', '.\n', '! ', '!\n', '? ', '?\n']:
-                    boundary_pos = text.rfind(boundary, start, end)
-                    if boundary_pos > start:
-                        end = boundary_pos + len(boundary)
-                        break
-                else:
-                    # Look for word boundaries
-                    space_pos = text.rfind(' ', start, end)
-                    if space_pos > start:
-                        end = space_pos
-            
-            chunk_text = text[start:end].strip()
-            if chunk_text:
-                chunks.append(chunk_text)
-            
-            # Move start position with overlap
-            start = max(end - overlap, start + 1)
-            
-            # Prevent infinite loop
-            if start >= len(text):
-                break
-        
-        return chunks
-    
     def _sort_chunks_by_position(self, chunks: List) -> List:
-        """Sort chunks by page number and type."""
+        """Sort chunks by page number and type with better positioning."""
         
         # Define type priority (text first, then tables, then images)
         type_priority = {
@@ -517,8 +752,8 @@ class PDFParser(BaseParser):
             chunks,
             key=lambda x: (
                 x.page_number or 0,
-                type_priority.get(x.chunk_type.value, 99),
-                x.chunk_index
+                type_priority.get(x.chunk_type.value if hasattr(x.chunk_type, 'value') else str(x.chunk_type), 99),
+                x.chunk_index or 0
             )
         )
     
