@@ -41,18 +41,13 @@ class DocumentService(LoggerMixin):
             if not Path(abs_file_path).exists():
                 raise DocumentServiceError(f"File not found {file_path}")
 
-            # Parse processing options
             options = ProcessingOptions(**processing_options) if processing_options else ProcessingOptions()
-
-            # Generate unique document_id FIRST
             document_id = str(uuid.uuid4())
-
-            # Determine document format and mime type early
             file_format = self._determine_format(file_path)
             mime_type = self._get_mime_type(file_path)
             file_size = Path(abs_file_path).stat().st_size
 
-            # Create Document instance with minimal info, empty chunks initially
+            # Initialize document with status UPLOADED
             document = Document(
                 document_id=document_id,
                 file_name=Path(file_path).name,
@@ -60,7 +55,7 @@ class DocumentService(LoggerMixin):
                 file_size=file_size,
                 file_format=file_format,
                 mime_type=mime_type,
-                file_hash="",  # Will fill after hashing
+                file_hash="",  # Will be updated
                 user_id=user_id,
                 processing_options=options,
                 metadata=DocumentMetadata(),
@@ -68,40 +63,42 @@ class DocumentService(LoggerMixin):
                 total_chunks=0,
                 processing_time=0.0
             )
+            document.update_status(ProcessingStatus.UPLOADED)
 
-            # Get appropriate parser
             parser = self.parser_registry.get_parser(file_path, mime_type)
             if not parser:
                 raise DocumentServiceError(f"No suitable parser found for: {file_path}")
 
-            # Parse document while passing document_id to annotated chunks afterwards
-            parse_result = await parser.parse(abs_file_path, document.document_id, options)  
+            # Update status before parsing
+            document.update_status(ProcessingStatus.PARSING)
+
+            parse_result = await parser.parse(abs_file_path, document.document_id, options)
             if not parse_result.success:
+                document.update_status(ProcessingStatus.FAILED)
                 raise DocumentServiceError(f"Parsing failed: {parse_result.error_message}")
 
-            # Calculate file hash now
             file_hash = self._calculate_file_hash(abs_file_path)
             document.file_hash = file_hash
 
-            # Check for duplicates
             existing_doc = self._find_document_by_hash(file_hash)
             if existing_doc:
                 self.logger.warning(f"Duplicate document detected: {file_path}")
                 return existing_doc
 
-            # Now update the document with parsing results
+            # Update status before chunking
+            document.update_status(ProcessingStatus.CHUNKING)
+
             document.metadata = parse_result.metadata or DocumentMetadata()
             document.chunks = parse_result.chunks
             document.total_chunks = len(parse_result.chunks)
             document.processing_time = parse_result.processing_time
 
-            # Update status
-            document.update_status(ProcessingStatus.INDEXED)
+            # Embedding can be set here if needed, otherwise skip to Indexed
+            # document.update_status(ProcessingStatus.EMBEDDING)
 
-            # Store in registry
+            document.update_status(ProcessingStatus.INDEXED)
             self.documents[document_id] = document
 
-            # Update stats
             self.stats["documents_processed"] += 1
             self.stats["total_chuncks_created"] += len(document.chunks)
             self.stats["last_activity"] = datetime.now(UTC)
