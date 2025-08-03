@@ -35,7 +35,7 @@ class MessageStatus(str, Enum):
 class MCPMessage(BaseModel):
     message_id: str = Field(default_factory = lambda: str(uuid.uuid4()))
     trace_id: str = Field(default_factory = lambda: str(uuid.uuid4())) 
-    timestamp: datetime = Field(default_factory = datetime.now(UTC)) 
+    timestamp: datetime = Field(default_factory = lambda: datetime.now(UTC)) 
     sender: AgentType 
     receiver: AgentType
     message_type: MessageType 
@@ -43,7 +43,7 @@ class MCPMessage(BaseModel):
     payload: Dict[str, Any] = Field(default_factory = dict)
     metadata: Dict[str, Any] = Field(default_factory = dict) 
 
-    class Config:
+    class ConfigDict:
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
@@ -112,6 +112,6 @@ def create_error_message(original_message: MCPMessage, error_message: str, error
         trace_id = original_message.trace_id,
         metadata = {
             "original_message_id": original_message.message_id,
-            "error_timestamp": datetime.utcnow().isoformat()
+            "error_timestamp": datetime.now(UTC).isoformat()
         }
     )
