@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Type, Optional
+from typing import Dict, Type, Optional, List
 from .base_parser import BaseParser
 from .pdf_parser import PDFParser 
 
@@ -28,3 +28,6 @@ class ParserRegistry:
                 return parser
         
         return None
+    
+    def get_supported_extensions(self) -> List[str]:
+        return list(self.parsers.keys())

@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     upload_directory: str = Field("./uploads", env="UPLOAD_DIRECTORY")
     logs_directory: str = Field("./logs", env="LOGS_DIRECTORY")
 
+    # MCP Configuration
+    mcp_timeout: int = Field(30, env="MCP_TIMEOUT")
+    mcp_max_retries: int = Field(3, env="MCP_MAX_RETRIES")
+
 @lru_cache()
 def get_settings() -> Settings:
     """Get cached application instance."""
