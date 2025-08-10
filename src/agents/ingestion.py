@@ -542,7 +542,7 @@ class IngestionAgent(BaseAgent):
             
             # Parse document
             parse_start = time.time()
-            parse_result = await parser.parse(request.file_path, document.processing_options)
+            parse_result = await parser.parse(request.file_path, document_id = document.document_id, options = document.processing_options)
             document.parsing_time = time.time() - parse_start
             
             if not parse_result.success:
@@ -599,7 +599,7 @@ class IngestionAgent(BaseAgent):
     
     async def _process_chunks(self, document: Document, parse_result: ParseResult):
         """Process and validate document chunks."""
-        
+        self.logger.info(f"Processing {len(parse_result.chunks)} chunks for document {document.document_id}")
         for chunk in parse_result.chunks:
             # Set document ID
             chunk.document_id = document.document_id
