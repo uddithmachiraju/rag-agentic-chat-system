@@ -27,6 +27,9 @@ from ..parsers.base_parser import ParseResult
 
 from ..agents.base_agent import BaseAgent 
 
+from ..vector_store.embeddings import GeminiEmbeddingService
+from ..vector_store.chroma_store import ChromaVectorStore
+
 class IngestionError(Exception):
     """Custom exception for ingestion process errors."""
     pass
@@ -250,7 +253,7 @@ class DocumentStorage:
         return stats
 
 
-class IngestionAgent(BaseAgent):
+class IngestionAgent(BaseAgent, LoggerMixin): 
     """Advanced document ingestion agent with comprehensive processing pipeline."""
     
     def __init__(self):
@@ -264,6 +267,10 @@ class IngestionAgent(BaseAgent):
         self.active_documents: Dict[str, Document] = {}
         self.processing_queue: asyncio.Queue = asyncio.Queue()
         self.processing_tasks: Dict[str, asyncio.Task] = {}
+
+        # Embedding service
+        self.embedding_service = GeminiEmbeddingService()
+        self.vector_store = ChromaVectorStore() 
         
         # Statistics
         self.stats = {
@@ -288,6 +295,10 @@ class IngestionAgent(BaseAgent):
             asyncio.create_task(self._process_queue_worker())
             
             self.logger.info("IngestionAgent initialized successfully")
+
+            await self.vector_store.initialize() 
+            self.logger.info("Vector store initialized successfully")
+
             return True
             
         except Exception as e:
@@ -559,10 +570,7 @@ class IngestionAgent(BaseAgent):
             # Update metadata
             if parse_result.metadata:
                 document.metadata = parse_result.metadata
-            
-            # Update status to indexed (we'll add actual indexing in later bricks)
-            document.update_status(ProcessingStatus.INDEXED)
-            
+        
             # Update statistics
             document.processing_time = time.time() - start_time
             self.stats['documents_processed'] += 1
@@ -574,7 +582,38 @@ class IngestionAgent(BaseAgent):
                 f"Document processing completed: {document.document_id} "
                 f"({document.total_chunks} chunks in {document.processing_time:.2f}s)"
             )
-            
+
+            document.update_status(ProcessingStatus.EMBEDDING)
+
+            if not self.vector_store.is_initialized:
+                await self.vector_store.initialize() 
+
+            embedding_tasks = [self.embedding_service.generate_embedding(chunk.content) for chunk in document.chunks]
+            embeddings = await asyncio.gather(*embedding_tasks)
+            for chunk, embedding in zip(document.chunks, embeddings):
+                chunk.embedding_vector = embedding
+                chunk.embedding_model = self.embedding_service.model_name 
+
+            # Store embeddings in vector store  
+            items = []
+            for chunk in document.chunks:
+                items.append(
+                    {
+                        "id": chunk.chunk_id,
+                        "embedding": chunk.embedding_vector,
+                        "metadata": {
+                            "document_id": document.document_id,
+                            "file_name": document.file_name,
+                            "chunk_index": chunk.chunk_index,
+                            "content": chunk.content,
+                            "created_at": chunk.created_at.isoformat()
+                        }
+                    }
+                )
+            await self.vector_store.add_documents(chunks = document.chunks, embeddings = embeddings)
+
+            document.update_status(ProcessingStatus.INDEXED)
+                                
             # Send completion notification
             await self._send_processing_completion_notification(document)
             
