@@ -3,6 +3,9 @@ from functools import lru_cache
 from typing import List, Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Settings(BaseSettings):
     app_name: str = "Agentic RAG Chatbot"
@@ -24,6 +27,7 @@ class Settings(BaseSettings):
     # Vector database configuration
     vector_db_type: str = Field("chroma", env="VECTOR_DB_TYPE")
     vector_db_path: str = Field("./vector_db", env="VECTOR_DB_PATH")
+    chroma_db_path: str = Field("./chroma_db", env="CHROMA_DB_PATH")
 
     # Storage paths
     upload_directory: str = Field("./uploads", env="UPLOAD_DIRECTORY")

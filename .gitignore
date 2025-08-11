@@ -45,7 +45,7 @@ logs/
 
 # Vector store data
 chroma_db/
-vector_store/
+# vector_store/
 
 # Uploaded documents
 uploads/

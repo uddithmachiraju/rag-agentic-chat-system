@@ -74,6 +74,7 @@ class ProcessingOptions(BaseModel):
     extract_tables: bool = True
     ocr_enabled: bool = False
     language_detection: bool = True
+    max_file_size_mb: int = 100
     
     # Format-specific options
     pdf_options: Dict[str, Any] = Field(default_factory=dict)
