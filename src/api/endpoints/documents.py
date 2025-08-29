@@ -28,7 +28,7 @@ class UploadHandler(LoggerMixin):
             self.logger.info(f"File saved successfully: {file_path}")
 
             result = await ingestion_agent.ingest_document(str(file_path))
-            self.logger.info(f"Document Processed: {result["document_id"]}") 
+            self.logger.info(f"Document Processed: {result['document_id']}") 
 
             return JSONResponse({
                 "user_id": user_id,
@@ -51,10 +51,7 @@ async def upload_endpoint(file: UploadFile = File(...), user_id: str = Form("ano
 class DocumentHandler(LoggerMixin):
     async def list_documents(self, user_id: str = None):
         try:
-            docs = []
-            for doc_id, doc in ingestion_agent.active_documents.items():
-                if user_id is None or doc.user_id == user_id:
-                    docs.append(doc)
+            docs = await ingestion_agent.list_all_documents(user_id = user_id)
             self.logger.info(f"Found {len(docs)} documents in ingestion agent.")
             return [
                 {
@@ -65,7 +62,7 @@ class DocumentHandler(LoggerMixin):
                     "file_hash": doc.file_hash,
                     "metadata": doc.metadata.model_dump() if doc.metadata else {},
                     "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
-                    "processing_time": doc.processing_at.total_seconds() if doc.processing_time else None,
+                    "processing_time": doc.processed_at if doc.processing_time else None,
                     "user_id": doc.user_id
                 }
                 for doc in docs 
@@ -78,14 +75,7 @@ class DocumentHandler(LoggerMixin):
         
     async def get_document(self, document_id: str):
         try:
-            doc = None 
-            if document_id in ingestion_agent.active_documents:
-                doc = ingestion_agent.active_documents[document_id]
-                self.logger.info(f"Found document in active documents: {document_id}")
-            else:
-                doc = await self._load_document_from_storage(document_id)
-                if doc:
-                    self.logger.info(f"Loaded document from storage: {document_id}") 
+            doc = await ingestion_agent.get_document(document_id = document_id)
 
             if not doc:
                 self.logger.error(f"No document found with {document_id}")
@@ -105,8 +95,21 @@ class DocumentHandler(LoggerMixin):
                 "processing_time": getattr(doc, 'processing_at', 0),
                 "parsing_time": getattr(doc, 'parsing_time', 0),
                 "chunking_time": getattr(doc, 'chunking_time', 0),
+                "embedding_time": getattr(doc, 'embedding_time', 0),
+                "error_message": getattr(doc, 'error_message', None),
                 "metadata": doc.metadata.model_dump() if doc.metadata else {},
-                "chunks": doc.chunks 
+                "chunks": [
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "chunk_index": chunk.chunk_index,
+                        "content": chunk.content,
+                        "start_char": chunk.start_char,
+                        "end_char": chunk.end_char,
+                        "page_number": chunk.page_number,
+                        "created_at": chunk.created_at.isoformat()
+                    }
+                    for chunk in doc.chunks
+                ] if doc.chunks else []
             }
             return response 
         except Exception as e:
@@ -115,52 +118,10 @@ class DocumentHandler(LoggerMixin):
                 "status": f"Error {str(e)}" 
             }
         
-    async def _load_document_from_storage(self, document_id: str):
-        try:
-            stored_path = ingestion_agent.storage.get_document_path(document_id)
-            if not stored_path:
-                return None
-            
-            metadata_file = ingestion_agent.storage.metadata_path / f"{document_id}.json"
-            if metadata_file.exists():
-                import json
-                with open(metadata_file, 'r') as f:
-                    doc_data = json.load(f)
-                
-                self.logger.info(f"Found metadata for document {document_id}, but reconstruction not implemented")
-                return None
-            
-            return None
-            
-        except Exception as e:
-            self.logger.error(f"Error loading document from storage: {e}")
-            return None
-        
-    async def ingest_document(self, file: UploadFile = File(...)):
-        file_id = str(uuid.uuid4().hex[:6]) 
-        file_path = UPLOAD_DIR / f"{file_id}_{file.filename}"
-        
-        try:
-            with open(file_path, "wb") as dest:
-                shutil.copyfileobj(file.file, dest)
-            self.logger.info(f"File saved successfully: {file_path}")
-
-            # Ingest and index the document
-            result = await ingestion_agent.ingest_document(file_path)
-            return {"result": result}
-        
-        except DocumentServiceError as e:
-            self.logger.error(f"Ingestion Agent Error: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
-
-        except Exception as e:
-            self.logger.exception("Unexpected error during upload")
-            raise HTTPException(status_code=500, detail="Internal server error")
-        
     async def get_processing_status(self, document_id: str):
         try:
-            if document_id in ingestion_agent.active_documents:
-                doc = ingestion_agent.active_documents[document_id]
+            doc = await ingestion_agent.get_document(document_id) 
+            if doc:
                 return {
                     "document_id": document_id,
                     "status": doc.status, 
@@ -173,20 +134,11 @@ class DocumentHandler(LoggerMixin):
                     "uploaded_at": doc.uploaded_at.isoformat()
                 }
             else:
-                # Check if document exists in storage
-                stored_path = ingestion_agent.storage.get_document_path(document_id)
-                if stored_path:
-                    return {
-                        "document_id": document_id, 
-                        "status": "completed_and_stored",
-                        "message": "Document processed and moved to storage"
-                    }
-                else:
-                    return {
-                        "document_id": document_id, 
-                        "status": "not_found",
-                        "message": "Document not found in active processing or storage"
-                    }
+                return {
+                    "document_id": document_id, 
+                    "status": "not_found",
+                    "message": "Document not found in active processing or storage"
+                }
         except Exception as e:
             self.logger.error(f"Error getting processing status: {e}")
             raise HTTPException(500, str(e))
@@ -231,10 +183,6 @@ async def list_documents(user_id: str = None):
 async def get_document(document_id: str):
     return await doc_handler.get_document(document_id) 
 
-@document_router.post("/ingest")
-async def ingest_document(file: UploadFile = File(...)):
-    return await doc_handler.ingest_document(file=file)
-
 @document_router.get("/document/{document_id}/status")
 async def get_document_status(document_id: str):
     return await doc_handler.get_processing_status(document_id)
@@ -252,21 +200,35 @@ async def get_ingestion_stats():
 async def debug_documents():
     """Debug endpoint to see active documents and stats."""
     try:
+        # Get all documents (active + stored)
+        all_docs = await ingestion_agent.list_all_documents()
+        
         active_docs = []
-        for doc_id, doc in ingestion_agent.active_documents.items():
-            active_docs.append({
-                "document_id": doc_id,
+        stored_docs = []
+        
+        for doc in all_docs:
+            doc_info = {
+                "document_id": doc.document_id,
                 "file_name": doc.file_name,
                 "status": doc.status.value if hasattr(doc.status, 'value') else str(doc.status),
                 "user_id": doc.user_id,
-                "total_chunks": doc.total_chunks
-            })
+                "total_chunks": doc.total_chunks,
+                "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
+            }
+            
+            if doc.document_id in ingestion_agent.active_documents:
+                active_docs.append(doc_info)
+            else:
+                stored_docs.append(doc_info)
         
         storage_stats = ingestion_agent.storage.get_storage_stats()
         
         return {
             "active_documents": active_docs,
+            "stored_documents": stored_docs,
             "total_active": len(active_docs),
+            "total_stored": len(stored_docs),
+            "total_documents": len(all_docs),
             "ingestion_stats": ingestion_agent.stats,
             "storage_stats": storage_stats,
             "queue_size": ingestion_agent.processing_queue.qsize(),

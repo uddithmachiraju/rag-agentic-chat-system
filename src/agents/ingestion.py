@@ -1,5 +1,6 @@
 import asyncio 
 import time 
+import json 
 from pathlib import Path 
 from typing import Dict, Any, List, Optional, Type, Union
 import hashlib 
@@ -613,6 +614,8 @@ class IngestionAgent(BaseAgent, LoggerMixin):
             await self.vector_store.add_documents(chunks = document.chunks, embeddings = embeddings)
 
             document.update_status(ProcessingStatus.INDEXED)
+
+            await self.save_document_metadata(document) 
                                 
             # Send completion notification
             await self._send_processing_completion_notification(document)
@@ -865,3 +868,155 @@ class IngestionAgent(BaseAgent, LoggerMixin):
             "embedding_time": processed_doc.embedding_time,
             "error_message": processed_doc.error_message or "",
         }
+    
+    async def save_document_metadata(self, document: Document):
+        """Save document metadata to persistent storage."""
+        try:
+            metadata_file = self.storage.metadata_path / f"{document.document_id}.json"
+            self.logger.info(f"Saving metadata to: {metadata_file}")
+            document_data = {
+                "document_id": document.document_id,
+                "file_name": document.file_name,
+                "status": document.status.value,
+                "total_chunks": document.total_chunks,
+                "processing_time": getattr(document, 'processing_time', 0),
+                "parsing_time": getattr(document, 'parsing_time', 0),
+                "chunking_time": getattr(document, 'chunking_time', 0),
+                "embedding_time": getattr(document, 'embedding_time', 0),
+                "file_size": document.file_size,
+                "file_format": document.file_format.value,
+                "mime_type": document.mime_type,
+                "file_hash": document.file_hash,
+                "user_id": document.user_id,
+                "uploaded_at": document.uploaded_at.isoformat(),
+                "processed_at": document.processed_at.isoformat(),
+                "error_message": getattr(document, 'error_message', None),
+                "metadata": document.metadata.model_dump() if document.metadata else {},
+                "chunks": [
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "document_id": chunk.document_id,
+                        "chunk_index": chunk.chunk_index,
+                        "content": chunk.content,
+                        "start_char": chunk.start_char,
+                        "end_char": chunk.end_char,
+                        "page_number": chunk.page_number,
+                        "embedding_vector": chunk.embedding_vector,
+                        "embedding_model": chunk.embedding_model,
+                        "created_at": chunk.created_at.isoformat()
+                    }
+                    for chunk in document.chunks
+                ]
+            }
+
+            # Ensure the metadata directory exists
+            self.storage.metadata_path.mkdir(parents=True, exist_ok=True)
+
+            with open(metadata_file, 'w') as f:
+                json.dump(document_data, f, indent=4, default=str)
+                
+            self.logger.info(f"Saved metadata for document {document.document_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Error saving document metadata: {e}")
+
+    async def load_document_from_storage(self, document_id: str) -> Optional[Document]:
+        """Load a document from persistent storage."""
+        try:
+            metadata_file = self.storage.metadata_path / f"{document_id}.json"
+            if not metadata_file.exists():
+                return None
+            
+            with open(metadata_file, 'r') as f:
+                doc_data = json.load(f)
+            
+            # Reconstruct document object
+            document = Document(
+                document_id=doc_data["document_id"],
+                file_name=doc_data["file_name"],
+                original_path=self.storage.get_document_path(doc_data["document_id"]),
+                file_size=doc_data["file_size"],
+                file_format=DocumentFormat(doc_data["file_format"]),
+                mime_type=doc_data["mime_type"],
+                file_hash=doc_data["file_hash"],
+                user_id=doc_data["user_id"]
+            )
+            
+            # Restore timestamps
+            document.uploaded_at = datetime.fromisoformat(doc_data["uploaded_at"])
+            if doc_data.get("processed_at"):
+                document.processed_at = datetime.fromisoformat(doc_data["processed_at"])
+            
+            # Restore status and timing
+            document.status = ProcessingStatus(doc_data["status"])
+            document.processing_time = doc_data.get("processing_time", 0)
+            document.parsing_time = doc_data.get("parsing_time", 0)
+            document.chunking_time = doc_data.get("chunking_time", 0)
+            document.embedding_time = doc_data.get("embedding_time", 0)
+            document.error_message = doc_data.get("error_message")
+            
+            # Restore metadata
+            if doc_data.get("metadata"):
+                document.metadata = DocumentMetadata(**doc_data["metadata"])
+            
+            # Restore chunks
+            for chunk_data in doc_data.get("chunks", []):
+                chunk = DocumentChunk(
+                    chunk_id=chunk_data["chunk_id"],
+                    document_id=chunk_data["document_id"],
+                    chunk_index=chunk_data["chunk_index"],
+                    content=chunk_data["content"],
+                    start_char=chunk_data.get("start_char", 0),
+                    end_char=chunk_data.get("end_char", 0),
+                    page_number=chunk_data.get("page_number"),
+                    section=chunk_data.get("section"),
+                    embedding_vector=chunk_data.get("embedding_vector"),
+                    embedding_model=chunk_data.get("embedding_model")
+                )
+                chunk.created_at = datetime.fromisoformat(chunk_data["created_at"])
+                document.chunks.append(chunk)
+            
+            document.total_chunks = len(document.chunks)
+            
+            self.logger.info(f"Successfully loaded document {document_id} from storage")
+            return document
+            
+        except Exception as e:
+            self.logger.error(f"Error loading document from storage: {e}")
+            return None
+        
+    async def get_document(self, document_id: str) -> Optional[Document]:
+        """Get document from active memory or load from storage."""
+        # First check active documents
+        if document_id in self.active_documents:
+            return self.active_documents[document_id]
+        
+        # Then try to load from storage
+        return await self.load_document_from_storage(document_id)
+
+    async def list_all_documents(self, user_id: str = None) -> List[Document]:
+        """List all documents (active + stored)."""
+        documents = []
+        
+        # Get active documents
+        for doc_id, doc in self.active_documents.items():
+            if user_id is None or doc.user_id == user_id:
+                documents.append(doc)
+        
+        # Get stored documents
+        try:
+            for metadata_file in self.storage.metadata_path.glob("*.json"):
+                doc_id = metadata_file.stem
+                
+                # Skip if already in active documents
+                if doc_id in self.active_documents:
+                    continue
+                    
+                stored_doc = await self.load_document_from_storage(doc_id)
+                if stored_doc and (user_id is None or stored_doc.user_id == user_id):
+                    documents.append(stored_doc)
+                    
+        except Exception as e:
+            self.logger.error(f"Error listing stored documents: {e}")
+        
+        return documents
