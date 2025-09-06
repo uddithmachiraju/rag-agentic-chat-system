@@ -267,10 +267,10 @@ class ChromaVectorStore(BaseVectorStore):
         self,
         query_embedding: List[float],
         max_results: int = 5,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.3,
         filters: Optional[Dict[str, Any]] = None
     ) -> RetrievalResults:
-        """Perform similarity search in ChromaDB."""
+        """Perform similarity search in ChromaDB with detailed debugging."""
         
         if not self.is_initialized:
             raise VectorStoreError("Vector store not initialized")
@@ -278,6 +278,21 @@ class ChromaVectorStore(BaseVectorStore):
         start_time = time.time()
         
         try:
+            # Debug: Check collection state
+            collection_count = self.collection.count()
+            self.logger.info(f"Collection has {collection_count} documents")
+            
+            if collection_count == 0:
+                self.logger.warning("Collection is empty - no documents to search")
+                return self._empty_results(filters, time.time() - start_time)
+            
+            # Debug: Validate query embedding
+            if not query_embedding or len(query_embedding) == 0:
+                self.logger.error("Query embedding is empty")
+                return self._empty_results(filters, time.time() - start_time)
+            
+            self.logger.info(f"Query embedding dimension: {len(query_embedding)}")
+            
             # Build where clause for filtering
             where_clause = {}
             if filters:
@@ -302,7 +317,26 @@ class ChromaVectorStore(BaseVectorStore):
                     else:
                         where_clause[key] = value
             
-            # Perform similarity search
+            self.logger.info(f"Where clause: {where_clause}")
+            
+            # Debug: Try query without similarity threshold first
+            debug_results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=min(max_results * 2, 20),  # Get more results for debugging
+                where=where_clause if where_clause else None
+            )
+            
+            self.logger.info(f"Raw query returned {len(debug_results.get('ids', [[]]))} result sets")
+            if debug_results['ids'] and debug_results['ids'][0]:
+                self.logger.info(f"First result set has {len(debug_results['ids'][0])} results")
+                if debug_results['distances'] and debug_results['distances'][0]:
+                    distances = debug_results['distances'][0]
+                    similarities = [1.0 - d for d in distances]
+                    self.logger.info(f"Similarity scores: {similarities[:5]}...")  # Show first 5
+                    self.logger.info(f"Max similarity: {max(similarities) if similarities else 'N/A'}")
+                    self.logger.info(f"Min similarity: {min(similarities) if similarities else 'N/A'}")
+            
+            # Perform actual search with original parameters
             results = self.collection.query(
                 query_embeddings=[query_embedding],
                 n_results=max_results,
@@ -320,14 +354,20 @@ class ChromaVectorStore(BaseVectorStore):
                 metadatas = results['metadatas'][0]
                 distances = results['distances'][0]
                 
+                self.logger.info(f"Processing {len(ids)} raw results")
+                
+                filtered_count = 0
                 for i, (chunk_id, content, metadata, distance) in enumerate(
                     zip(ids, documents, metadatas, distances)
                 ):
                     # Convert distance to similarity score (ChromaDB uses cosine distance)
                     similarity_score = 1.0 - distance
                     
+                    self.logger.debug(f"Result {i}: similarity={similarity_score:.4f}, threshold={similarity_threshold}")
+                    
                     # Apply similarity threshold
                     if similarity_score < similarity_threshold:
+                        filtered_count += 1
                         continue
                     
                     # Create search result
@@ -343,6 +383,11 @@ class ChromaVectorStore(BaseVectorStore):
                     )
                     
                     search_results.append(search_result)
+                
+                self.logger.info(f"Filtered out {filtered_count} results below threshold {similarity_threshold}")
+                self.logger.info(f"Final results count: {len(search_results)}")
+            else:
+                self.logger.warning("No results returned from ChromaDB query")
             
             # Create retrieval results
             retrieval_results = RetrievalResults(
@@ -356,7 +401,7 @@ class ChromaVectorStore(BaseVectorStore):
             # Update statistics
             self.stats['searches_performed'] += 1
             
-            self.logger.debug(
+            self.logger.info(
                 f"ChromaDB search completed: {len(search_results)} results "
                 f"in {retrieval_time:.3f}s"
             )
@@ -365,8 +410,18 @@ class ChromaVectorStore(BaseVectorStore):
             
         except Exception as e:
             error_msg = f"Search failed: {str(e)}"
-            self.logger.error(error_msg)
+            self.logger.error(error_msg, exc_info=True)
             raise VectorStoreError(error_msg)
+
+    def _empty_results(self, filters, retrieval_time):
+        """Helper to create empty results."""
+        return RetrievalResults(
+            query_id="",
+            results=[],
+            retrieval_time=retrieval_time,
+            retrieval_strategy=RetrievalStrategy.SIMILARITY,
+            filters_applied=filters or {}
+        )
     
     async def get_chunk_by_id(self, chunk_id: str) -> Optional[DocumentChunk]:
         """Retrieve a specific chunk by ID from ChromaDB."""

@@ -187,7 +187,7 @@ class QueryProcessor:
         return context_updates
 
 
-class RetrievalStrategy:
+class RetrievalStrategyOperations:
     """Implements various retrieval strategies."""
     
     def __init__(self, vector_store: ChromaVectorStore, embedding_service: GeminiEmbeddingService):
@@ -456,7 +456,7 @@ class RetrievalAgent(BaseAgent):
         self.vector_store: Optional[ChromaVectorStore] = None
         self.embedding_service: Optional[GeminiEmbeddingService] = None
         self.query_processor = QueryProcessor()
-        self.retrieval_strategy: Optional[RetrievalStrategy] = None
+        self.retrieval_strategy: Optional[RetrievalStrategyOperations] = None
         
         # Query cache
         self.query_cache: Dict[str, RetrievalResults] = {}
@@ -491,7 +491,7 @@ class RetrievalAgent(BaseAgent):
             self.embedding_service = GeminiEmbeddingService()
             
             # Initialize retrieval strategies
-            self.retrieval_strategy = RetrievalStrategy(
+            self.retrieval_strategy = RetrievalStrategyOperations(
                 self.vector_store, 
                 self.embedding_service
             )
@@ -584,6 +584,7 @@ class RetrievalAgent(BaseAgent):
                     'results': [result.dict() for result in cached_result.results],
                     'total_results': cached_result.total_results,
                     'retrieval_time': cached_result.retrieval_time,
+                    'strategy_used': cached_result.retrieval_strategy, 
                     'cached': True
                 }
                 

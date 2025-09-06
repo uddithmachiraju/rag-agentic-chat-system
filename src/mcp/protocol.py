@@ -54,7 +54,7 @@ class DocumentProcessingRequest(BaseModel):
     file_path: str
     file_name: str
     file_type: str
-    user_id: Optional[str] = None
+    user_id: Optional[str] = "anonymous"
     processing_options: Dict[str, Any] = Field(default_factory=dict)
 
 class DocumentProcessingResponse(BaseModel):

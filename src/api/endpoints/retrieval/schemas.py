@@ -9,7 +9,7 @@ class SearchRequest(BaseModel):
     """Request Model for search"""
     query: str = Field(..., description = "Search query text")
     query_type: Optional[QueryType] = Field(QueryType.SEMANTIC, description = "Type of query")
-    retrieval_strategy: Optional[RetrievalStrategy] =Field(RetrievalStrategy.SIMILARITY, description = "Retrieval strategy to use")
+    retrieval_strategy: Optional[RetrievalStrategy] =Field(RetrievalStrategy.MMR, description = "Retrieval strategy to use")
     max_results: Optional[int] = Field(10, ge = 1, le = 100, description = "Max number of results")
     similarity_threshold: Optional[float] = Field(0.3, ge = 0.0, le = 1.0, description = "Minimum similarity threshold")
     document_ids: Optional[List[str]] = Field(None, description = "Filter by document ID")

@@ -67,8 +67,8 @@ class DocumentMetadata(BaseModel):
 class ProcessingOptions(BaseModel):
     """Options for document processing."""
     
-    chunk_size: int = Field(1000, ge=100, le=5000)
-    chunk_overlap: int = Field(200, ge=0, le=1000)
+    chunk_size: int = Field(200, ge=100, le=5000)
+    chunk_overlap: int = Field(30, ge=0, le=1000)
     preserve_formatting: bool = True
     extract_images: bool = False
     extract_tables: bool = True
