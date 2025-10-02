@@ -233,24 +233,20 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
     async def start_all_agents(self) -> None:
         """Start all downstream agents."""
         self.logger.info("Starting all downstream agents")
-        
         for name, agent in self.agents.items():
             try:
-                if hasattr(agent, 'start'):
-                    await agent.start()
-                    self.logger.info(f"Started {name} agent")
+                await agent.start()
+                self.logger.info(f"Started {name} agent")
             except Exception as e:
                 self.logger.error(f"Failed to start {name} agent: {e}")
 
     async def stop_all_agents(self) -> None:
         """Stop all downstream agents gracefully."""
         self.logger.info("Stopping all downstream agents")
-        
         for name, agent in self.agents.items():
             try:
-                if hasattr(agent, 'stop'):
-                    await agent.stop()
-                    self.logger.info(f"Stopped {name} agent")
+                await agent.stop()
+                self.logger.info(f"Stopped {name} agent")
             except Exception as e:
                 self.logger.error(f"Failed to stop {name} agent: {e}")
 
@@ -282,6 +278,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 for required_agent in route.requires_agents:
                     agent = self.agents.get(required_agent)
                     if not agent or not agent.is_healthy():
+                        self.logger.debug(f"Agent health check failed: {required_agent}")
                         missing_agents.append(required_agent)
                 
                 if missing_agents:
