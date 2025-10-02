@@ -104,6 +104,12 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 "Get ingestion agent statistics",
                 requires_agents=["ingestion"]
             ),
+            "get_document": Route(
+                "get_document",
+                self._route_get_document, 
+                "Get document details and chunks by document_id",
+                requires_agents=["ingestion"] 
+            ),
 
             # Document retrieval routes
             "retrieve_documents": Route(
@@ -338,6 +344,14 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
 
     async def _route_get_processing_status(self, message: MCPMessage) -> MCPMessage:
         """Route processing status request to ingestion agent."""
+        payload = message.payload or {}
+        if "document_id" not in payload:
+            return create_error_message(message, "Missing required field: document_id")
+
+        return await self._forward_to_agent('ingestion', message)
+
+    async def _route_get_document(self, message: MCPMessage) -> MCPMessage:
+        """Route get document request to ingestion agent."""
         payload = message.payload or {}
         if "document_id" not in payload:
             return create_error_message(message, "Missing required field: document_id")

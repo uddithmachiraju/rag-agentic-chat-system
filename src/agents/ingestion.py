@@ -324,6 +324,9 @@ class IngestionAgent(BaseAgent, LoggerMixin):
                 elif message.payload.get('action') == 'get_stats':
                     return await self._handle_stats_request(message)
                 
+                elif message.payload.get('action') == 'get_document':
+                    return await self.get_document(message) 
+                
                 else:
                     return create_error_message(
                         message, 
@@ -985,14 +988,20 @@ class IngestionAgent(BaseAgent, LoggerMixin):
             self.logger.error(f"Error loading document from storage: {e}")
             return None
         
-    async def get_document(self, document_id: str) -> Optional[Document]:
+    async def get_document(self, message: MCPMessage) -> Optional[Document]:
         """Get document from active memory or load from storage."""
+        document_id = message.payload.get("document_id")
         # First check active documents
         if document_id in self.active_documents:
-            return self.active_documents[document_id]
-        
+            document = self.active_documents[document_id]
+            return create_response_message(message, document.model_dump())
+
         # Then try to load from storage
-        return await self.load_document_from_storage(document_id)
+        loaded_doc = await self.load_document_from_storage(document_id)
+        if loaded_doc:
+            return create_response_message(message, loaded_doc.model_dump())
+        else:
+            return create_response_message(message, None)
 
     async def list_all_documents(self, user_id: str = None) -> List[Document]:
         """List all documents (active + stored)."""
