@@ -326,6 +326,12 @@ class IngestionAgent(BaseAgent, LoggerMixin):
                 
                 elif message.payload.get('action') == 'get_document':
                     return await self.get_document(message) 
+
+                elif message.payload.get('action') == 'list_documents':
+                    return await self.list_all_documents(message)
+
+                elif message.payload.get('action') == 'list_every_document':
+                    return await self.list_every_document(message)
                 
                 else:
                     return create_error_message(
@@ -1003,29 +1009,59 @@ class IngestionAgent(BaseAgent, LoggerMixin):
         else:
             return create_response_message(message, None)
 
-    async def list_all_documents(self, user_id: str = None) -> List[Document]:
-        """List all documents (active + stored)."""
-        documents = []
-        
-        # Get active documents
-        for doc_id, doc in self.active_documents.items():
-            if user_id is None or doc.user_id == user_id:
-                documents.append(doc)
-        
-        # Get stored documents
+    async def list_all_documents(self, message: MCPMessage) -> MCPMessage:
+        """List all documents (active + stored). Returns an MCPMessage with payload {'documents': [...]}
+
+        Expects optional payload: {'user_id': <user_id>} to filter documents.
+        """
         try:
-            for metadata_file in self.storage.metadata_path.glob("*.json"):
-                doc_id = metadata_file.stem
-                
-                # Skip if already in active documents
-                if doc_id in self.active_documents:
-                    continue
-                    
-                stored_doc = await self.load_document_from_storage(doc_id)
-                if stored_doc and (user_id is None or stored_doc.user_id == user_id):
-                    documents.append(stored_doc)
-                    
+            user_id = (message.payload or {}).get("user_id", "anonymous") 
+            documents = []
+
+            # Get active documents
+            for doc_id, doc in self.active_documents.items():
+                if user_id is None or doc.user_id == user_id:
+                    documents.append(doc.model_dump())
+
+            # Get stored documents
+            try:
+                for metadata_file in self.storage.metadata_path.glob("*.json"):
+                    doc_id = metadata_file.stem
+
+                    stored_doc = await self.load_document_from_storage(doc_id)
+                    if stored_doc and (user_id == "anonymous" or stored_doc.user_id == user_id):
+                        documents.append(stored_doc.model_dump())
+
+            except Exception as e:
+                self.logger.error(f"Error listing stored documents: {e}")
+
+            return create_response_message(message, {"documents": documents})
+
         except Exception as e:
-            self.logger.error(f"Error listing stored documents: {e}")
-        
-        return documents
+            self.logger.exception(f"Failed to list documents: {e}")
+            return create_error_message(message, str(e))
+
+    async def list_every_document(self, message: MCPMessage) -> MCPMessage:
+        """Return every document in active memory and stored metadata without filtering by user."""
+        try:
+            documents = []
+
+            # Active documents
+            for doc_id, doc in self.active_documents.items():
+                documents.append(doc.model_dump())
+
+            # Stored documents
+            try:
+                for metadata_file in self.storage.metadata_path.glob("*.json"):
+                    doc_id = metadata_file.stem
+                    stored_doc = await self.load_document_from_storage(doc_id)
+                    if stored_doc:
+                        documents.append(stored_doc.model_dump())
+            except Exception as e:
+                self.logger.error(f"Error listing stored documents: {e}")
+
+            return create_response_message(message, {"documents": documents})
+
+        except Exception as e:
+            self.logger.exception(f"Failed to list every document: {e}")
+            return create_error_message(message, str(e))

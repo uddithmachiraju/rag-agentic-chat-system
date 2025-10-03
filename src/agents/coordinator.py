@@ -104,11 +104,29 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 "Get ingestion agent statistics",
                 requires_agents=["ingestion"]
             ),
+            "debug_documents": Route(
+                "debug_documents",
+                self._route_debug_documents,
+                "Debug: list active and stored documents",
+                requires_agents=["ingestion"]
+            ),
+            "delete_document": Route(
+                "delete_document",
+                self._route_delete_document,
+                "Delete a document from storage and index",
+                requires_agents=["ingestion", "retrieval"]
+            ),
             "get_document": Route(
                 "get_document",
                 self._route_get_document, 
                 "Get document details and chunks by document_id",
                 requires_agents=["ingestion"] 
+            ),
+            "list_documents": Route(
+                "list_documents", 
+                self._route_list_user_documents,
+                "List all documents for a user_id",
+                requires_agents=["ingestion"]
             ),
 
             # Document retrieval routes
@@ -358,6 +376,14 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
 
         return await self._forward_to_agent('ingestion', message)
 
+    async def _route_list_user_documents(self, message: MCPMessage) -> MCPMessage:
+        """Route to get all the user documents."""
+        payload = message.payload or {} 
+        if "user_id" not in payload:
+            return create_error_message(message, "Missing required field: user_id")
+
+        return await self._forward_to_agent('ingestion', message) 
+
     async def _route_cancel_processing(self, message: MCPMessage) -> MCPMessage:
         """Route processing cancellation to ingestion agent."""
         payload = message.payload or {}
@@ -376,6 +402,63 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
             return create_response_message(message, stats)
         except Exception as e:
             return create_error_message(message, f"Failed to get ingestion stats: {str(e)}")
+
+    async def _route_debug_documents(self, message: MCPMessage) -> MCPMessage:
+        """Return debug listing of all documents (active + stored) via ingestion agent."""
+        try:
+            # Call ingestion agent directly to list every document (no user filter)
+            m = MCPMessage(
+                sender=self.agent_type,
+                receiver=AgentType.INGESTION,
+                message_type=MessageType.REQUEST,
+                payload={"action": "list_every_document"}
+            )
+
+            response = await self.ingestion_agent.list_every_document(m)
+            return response
+        except Exception as e:
+            return create_error_message(message, f"Failed to debug documents: {str(e)}")
+
+    async def _route_delete_document(self, message: MCPMessage) -> MCPMessage:
+        """Delete a document from storage and retrieval index."""
+        try:
+            payload = message.payload or {}
+            document_id = payload.get("document_id")
+            if not document_id:
+                return create_error_message(message, "Missing required field: document_id")
+
+            # Attempt to delete from ingestion storage
+            storage_deleted = False
+            try:
+                storage_deleted = self.ingestion_agent.storage.delete_document(document_id)
+            except Exception:
+                storage_deleted = False
+
+            # Attempt to delete from retrieval/vector store (async)
+            retrieval_deleted = False
+            try:
+                # call retrieval agent to delete from index
+                retrieval_response = await self._forward_to_agent('retrieval', MCPMessage(
+                    sender=self.agent_type,
+                    receiver=AgentType.RETRIEVAL,
+                    message_type=MessageType.REQUEST,
+                    payload={"action": "delete_documents", "document_id": document_id}
+                ))
+
+                if retrieval_response and retrieval_response.message_type != MessageType.ERROR:
+                    retrieval_deleted = retrieval_response.payload.get("success", True)
+            except Exception:
+                retrieval_deleted = False
+
+            result = {
+                "document_id": document_id,
+                "storage_deleted": storage_deleted,
+                "index_deleted": retrieval_deleted
+            }
+
+            return create_response_message(message, result)
+        except Exception as e:
+            return create_error_message(message, f"Failed to delete document: {str(e)}")
 
     # ==================== DOCUMENT RETRIEVAL ROUTES ====================
 

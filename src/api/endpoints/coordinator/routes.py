@@ -15,7 +15,7 @@ coordinator = coordinator_agent
 UPLOAD_DIR = Path("./uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-@router.post("/ingestion/upload")
+@router.post("/ingestion/upload", tags=["ingestion"]) 
 async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("anonymous")):
     """Upload a document for ingestion via coordinator."""
     file_id = str(uuid.uuid4().hex[:6])
@@ -37,8 +37,8 @@ async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/ingestion/documents/{user_id}")
-async def coordinator_list_documents(user_id: str):
+@router.get("/ingestion/documents/{user_id}", tags=["ingestion"]) 
+async def coordinator_list_documents(user_id: str = "anonymous"): 
     """List all documents for a user via coordinator."""
     mcp_message = MCPMessage(
         sender=AgentType.COORDINATOR,
@@ -51,7 +51,7 @@ async def coordinator_list_documents(user_id: str):
         raise HTTPException(status_code=500, detail=response.payload.get("error", "List failed"))
     return response.payload
 
-@router.get("/ingestion/document/{document_id}")
+@router.get("/ingestion/document/{document_id}", tags=["ingestion"]) 
 async def coordinator_get_document(document_id: str):
     """Get document details and chunks via coordinator."""
     mcp_message = MCPMessage(
@@ -80,7 +80,7 @@ async def coordinator_get_document_status(document_id: str):
         raise HTTPException(status_code=500, detail=response.payload.get("error", "Status failed"))
     return response.payload
 
-@router.delete("/ingestion/document/{document_id}")
+@router.delete("/ingestion/document/{document_id}", tags=["ingestion"])
 async def coordinator_delete_document(document_id: str):
     """Delete a document via coordinator."""
     mcp_message = MCPMessage(
@@ -108,7 +108,7 @@ async def coordinator_get_ingestion_stats():
         raise HTTPException(status_code=500, detail=response.payload.get("error", "Stats failed"))
     return response.payload
 
-@router.get("/ingestion/debug/documents")
+@router.get("/ingestion/debug/documents", tags=["ingestion"]) 
 async def coordinator_debug_documents():
     """Debug: List all active and stored documents via coordinator."""
     mcp_message = MCPMessage(

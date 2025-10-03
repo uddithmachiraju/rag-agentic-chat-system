@@ -14,6 +14,12 @@ A modular Retrieval-Augmented Generation (RAG) system for document ingestion, se
 
 All user interaction is through the Coordinator. The Coordinator agent handles all ingestion, retrieval, and management by routing requests to the appropriate sub-agents. Use only the following endpoints:
 
+<div class="image-card" role="group" aria-label="Coordinator architecture image"style="display:flex; justify-content:center; align-items:center;">
+  <img class="coordinator" src="assets/coordinator.png" alt="Coordinator architecture diagram"
+       style="width:500px; height:auto; max-width:100%; border-radius:8px;" />
+</div>
+
+
 ### Ingestion (via Coordinator)
 - `POST /ingestion/upload` — Upload a document for ingestion
 - `GET /ingestion/documents/{user_id}` — List all documents for a user
@@ -27,8 +33,6 @@ All user interaction is through the Coordinator. The Coordinator agent handles a
 - `POST /coordinator/message` — Generic endpoint for sending messages to CoordinatorAgent
 - `GET /coordinator/health` — Coordinator and agent health check
 - `GET /coordinator/routes` — List all available built-in coordinator routes
-
-> All other APIs are internal and not intended for direct use. Always interact with the system through the Coordinator endpoints above.
 
 ## Quickstart
 1. **Install dependencies**
