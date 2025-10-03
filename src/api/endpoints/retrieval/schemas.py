@@ -35,3 +35,15 @@ class SearchResponse(BaseModel):
     processing_time: Optional[float] = None 
     strategy_used: str 
     cached: bool = False 
+
+class DocumentChunk(BaseModel):
+    chunk_id: str = Field(..., description = "Unique chunk id")
+    document_id: str = Field(..., description = "parent document identifier")
+    content: str = Field(..., description = "chunk content")
+    chunk_type: str = Field(..., description = "Type of chunk") 
+    start_index: int = Field(..., description = "Start Position in document") 
+    end_index: int = Field(..., description = "End position in document") 
+    metadata: Optional[Dict[str, Any]] = Field(default_factory = dict, description = "chunk metadata")
+
+class AddDocumentsRequest(BaseModel):
+    chunks: List[DocumentChunk] = Field(..., description="List of document chunks to add")

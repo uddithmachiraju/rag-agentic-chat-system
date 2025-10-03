@@ -1,3 +1,4 @@
+
 """ChromaDB implementation of vector store."""
 
 import asyncio
@@ -650,3 +651,21 @@ class ChromaVectorStore(BaseVectorStore):
                 
         except Exception as e:
             self.logger.error(f"Error closing ChromaDB: {e}")
+
+    async def list_document_ids(self) -> list:
+        """Return all unique document IDs in the collection."""
+        stats = await self.get_collection_stats()
+        # Try to extract document_ids from stats
+        document_ids = list(stats.get("document_ids")) if stats.get("document_ids") else None
+        if document_ids is None:
+            unique_docs = stats.get("unique_documents")
+            if isinstance(unique_docs, (list, set)):
+                document_ids = list(unique_docs)
+            else:
+                document_ids = []
+        return document_ids
+
+    async def get_chunks_by_document_id(self, document_id: str) -> list:
+        """Return all chunks for a given document ID as dicts."""
+        chunks = await self.get_chunks_by_document(document_id)
+        return [chunk.dict() for chunk in chunks]

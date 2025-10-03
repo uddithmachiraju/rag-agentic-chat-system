@@ -1,3 +1,5 @@
+import nltk
+from nltk.tokenize import sent_tokenize, word_tokenize
 """Advanced retrieval agent with intelligent search strategies and query processing."""
 
 import time
@@ -447,6 +449,69 @@ class RetrievalStrategyOperations:
 
 class RetrievalAgent(BaseAgent):
     """Advanced retrieval agent with intelligent search capabilities."""
+
+    def semantic_chunk_text(self, text: str, chunk_size: int = 200, overlap: int = 30, strategy: str = "paragraph") -> List[Dict[str, Any]]:
+        """Chunk text using semantic boundaries: paragraphs, sentences, or words."""
+        # Download punkt if not already
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError:
+            nltk.download('punkt')
+
+        chunks = []
+        if strategy == "paragraph":
+            paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+            for para in paragraphs:
+                if len(para) <= chunk_size:
+                    chunks.append(para)
+                else:
+                    # Fallback to sentence chunking
+                    sentences = sent_tokenize(para)
+                    current = ""
+                    for sent in sentences:
+                        if len(current) + len(sent) + 1 <= chunk_size:
+                            current += (" " if current else "") + sent
+                        else:
+                            if current:
+                                chunks.append(current)
+                            current = sent
+                    if current:
+                        chunks.append(current)
+        elif strategy == "sentence":
+            sentences = sent_tokenize(text)
+            current = ""
+            for sent in sentences:
+                if len(current) + len(sent) + 1 <= chunk_size:
+                    current += (" " if current else "") + sent
+                else:
+                    if current:
+                        chunks.append(current)
+                    current = sent
+            if current:
+                chunks.append(current)
+        elif strategy == "word":
+            words = word_tokenize(text)
+            for i in range(0, len(words), chunk_size - overlap):
+                chunk = " ".join(words[i:i+chunk_size])
+                if chunk:
+                    chunks.append(chunk)
+        else:
+            # fallback: whole text
+            chunks = [text]
+        return [{"content": c, "length": len(c)} for c in chunks]
+
+    def available_chunking_strategies(self) -> List[str]:
+        return ["paragraph", "sentence", "word"]
+
+    async def list_documents(self) -> List[str]:
+        if self.vector_store:
+            return await self.vector_store.list_document_ids()
+        return []
+
+    async def get_document_chunks(self, document_id: str) -> List[Dict[str, Any]]:
+        if self.vector_store:
+            return await self.vector_store.get_chunks_by_document_id(document_id)
+        return []
     
     def __init__(self):
         super().__init__(AgentType.RETRIEVAL)

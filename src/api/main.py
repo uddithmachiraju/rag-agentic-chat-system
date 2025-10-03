@@ -26,6 +26,6 @@ app = FastAPI(
 )
 # app.include_router(health_router, tags=["Health"])
 # app.include_router(document_router, tags=["Ingestion"])
-app.include_router(coordinator_router, tags=["Coordinator"])
+app.include_router(coordinator_router) 
 # app.include_router(mcp_router, tags=["MCP"])
 # app.include_router(retrieval_router, tags=["Retrieval"])
