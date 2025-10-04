@@ -66,7 +66,7 @@ async def coordinator_get_document(document_id: str):
     # Return the full MCPMessage as a dict (model_dump), not just the payload
     return response.model_dump()
 
-@router.get("/ingestion/document/{document_id}/status")
+@router.get("/ingestion/document/{document_id}/status", tags=["ingestion"])
 async def coordinator_get_document_status(document_id: str):
     """Get processing status for a document via coordinator."""
     mcp_message = MCPMessage(
@@ -78,6 +78,21 @@ async def coordinator_get_document_status(document_id: str):
     response = await coordinator._handle_message(mcp_message)
     if not response or response.message_type == MessageType.ERROR:
         raise HTTPException(status_code=500, detail=response.payload.get("error", "Status failed"))
+    return response.payload
+
+
+@router.post("/ingestion/document/{document_id}/cancel", tags=["ingestion"])
+async def coordinator_cancel_processing(document_id: str):
+    """Cancel processing for a document via coordinator."""
+    mcp_message = MCPMessage(
+        sender=AgentType.COORDINATOR,
+        receiver=AgentType.COORDINATOR,
+        message_type=MessageType.REQUEST,
+        payload={"action": "cancel_processing", "document_id": document_id}
+    )
+    response = await coordinator._handle_message(mcp_message)
+    if not response or response.message_type == MessageType.ERROR:
+        raise HTTPException(status_code=500, detail=response.payload.get("error", "Cancel failed"))
     return response.payload
 
 @router.delete("/ingestion/document/{document_id}", tags=["ingestion"])
@@ -94,7 +109,7 @@ async def coordinator_delete_document(document_id: str):
         raise HTTPException(status_code=500, detail=response.payload.get("error", "Delete failed"))
     return response.payload
 
-@router.get("/ingestion/ingestion/stats")
+@router.get("/ingestion/ingestion/stats", tags=["ingestion"]) 
 async def coordinator_get_ingestion_stats():
     """Get ingestion statistics via coordinator."""
     mcp_message = MCPMessage(

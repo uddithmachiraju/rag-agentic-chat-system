@@ -410,11 +410,24 @@ class IngestionAgent(BaseAgent, LoggerMixin):
                     }
                 }
             else:
-                response_payload = {
-                    'document_id': document_id,
-                    'status': 'not_found',
-                    'message': 'Document not found in active processing'
-                }
+                # Try to load from storage and report status if present
+                stored_doc = await self.load_document_from_storage(document_id)
+                if stored_doc:
+                    response_payload = {
+                        'document_id': document_id,
+                        'status': stored_doc.status.value if hasattr(stored_doc.status, 'value') else str(stored_doc.status),
+                        'progress': {
+                            'total_chunks': stored_doc.total_chunks,
+                            'processing_time': stored_doc.processing_time,
+                            'error_message': stored_doc.error_message
+                        }
+                    }
+                else:
+                    response_payload = {
+                        'document_id': document_id,
+                        'status': 'not_found',
+                        'message': 'Document not found in active processing or storage'
+                    }
             
             return create_response_message(message, response_payload)
             
