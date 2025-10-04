@@ -887,15 +887,31 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
             raise CoordinatorError(f"Agent '{agent_name}' is not healthy")
 
         try:
-            # Use the agent's message handler directly since we're in the same process
-            # In a distributed system, this would go through the message bus
+            # Prefer using the global message bus to ensure messages are recorded
+            # in transport history (request/response) for traceability.
+            if self.message_bus:
+                # Ensure the message has correct sender and receiver
+                message.sender = self.agent_type
+                message.receiver = agent.agent_type
+
+                response = await self.message_bus.request_response(message, timeout=None)
+                if not response:
+                    # Fall back to direct in-process call if bus didn't return a response
+                    self.logger.debug("Message bus request_response returned no response; falling back to direct handler")
+                    response = await agent._handle_message(message)
+
+                if not response:
+                    raise CoordinatorError(f"No response from {agent_name} agent")
+
+                return response
+
+            # If no message bus available, use in-process direct handler
             response = await agent._handle_message(message)
-            
             if not response:
                 raise CoordinatorError(f"No response from {agent_name} agent")
-            
+
             return response
-            
+
         except Exception as e:
             self.logger.error(f"Error forwarding message to {agent_name}: {e}")
             raise CoordinatorError(f"Communication with {agent_name} agent failed: {str(e)}")

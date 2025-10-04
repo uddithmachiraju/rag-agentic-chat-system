@@ -16,7 +16,7 @@ from ..models.document import (
 )
 
 from ..mcp.protocol import (MCPMessage, MessageType, AgentType, 
-    create_response_message, create_error_message, 
+    create_response_message, create_error_message, create_mcp_message,
     DocumentProcessingRequest, DocumentProcessingResponse
 )
 
@@ -693,17 +693,14 @@ class IngestionAgent(BaseAgent, LoggerMixin):
             }
             
             # Send to coordinator or other interested agents
-            notification_message = create_response_message(
-                # Create a dummy message for notification
-                MCPMessage(
-                    sender=self.agent_type,
-                    receiver=AgentType.COORDINATOR,
-                    message_type=MessageType.NOTIFICATION,
-                    payload=notification_payload
-                ),
-                notification_payload
+            # Build a proper NOTIFICATION message addressed to the Coordinator
+            notification_message = create_mcp_message(
+                sender=self.agent_type,
+                receiver=AgentType.COORDINATOR,
+                message_type=MessageType.NOTIFICATION,
+                payload=notification_payload
             )
-            
+
             await self.send_message(notification_message)
             
         except Exception as e:
@@ -722,17 +719,13 @@ class IngestionAgent(BaseAgent, LoggerMixin):
                 'processing_time': document.processing_time,
                 'file_name': document.file_name
             }
-            
-            notification_message = create_response_message(
-                MCPMessage(
-                    sender=self.agent_type,
-                    receiver=AgentType.COORDINATOR,
-                    message_type=MessageType.NOTIFICATION,
-                    payload=notification_payload
-                ),
-                notification_payload
+            notification_message = create_mcp_message(
+                sender=self.agent_type,
+                receiver=AgentType.COORDINATOR,
+                message_type=MessageType.NOTIFICATION,
+                payload=notification_payload
             )
-            
+
             await self.send_message(notification_message)
             
         except Exception as e:

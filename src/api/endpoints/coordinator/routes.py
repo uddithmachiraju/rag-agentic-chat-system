@@ -6,7 +6,7 @@ from pathlib import Path
 
 from src.api.endpoints.coordinator.schemas import CoordinatorRequest, CoordinatorResponse
 from src.agents.agent_singleton import coordinator_agent
-from src.mcp.protocol import MCPMessage, MessageType, AgentType
+from src.mcp.protocol import MCPMessage, MessageType, AgentType, create_mcp_message
 
 router = APIRouter()
 coordinator = coordinator_agent
@@ -24,7 +24,7 @@ async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("
         with open(file_path, "wb") as dest:
             shutil.copyfileobj(file.file, dest)
         # Route to coordinator for processing
-        mcp_message = MCPMessage(
+        mcp_message = create_mcp_message(
             sender=AgentType.COORDINATOR,
             receiver=AgentType.COORDINATOR,
             message_type=MessageType.REQUEST,
@@ -40,7 +40,7 @@ async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("
 @router.get("/ingestion/documents/{user_id}", tags=["ingestion"]) 
 async def coordinator_list_documents(user_id: str = "anonymous"): 
     """List all documents for a user via coordinator."""
-    mcp_message = MCPMessage(
+    mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
         receiver=AgentType.COORDINATOR,
         message_type=MessageType.REQUEST,
@@ -54,7 +54,7 @@ async def coordinator_list_documents(user_id: str = "anonymous"):
 @router.get("/ingestion/document/{document_id}", tags=["ingestion"]) 
 async def coordinator_get_document(document_id: str):
     """Get document details and chunks via coordinator."""
-    mcp_message = MCPMessage(
+    mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
         receiver=AgentType.COORDINATOR,
         message_type=MessageType.REQUEST,
@@ -69,7 +69,7 @@ async def coordinator_get_document(document_id: str):
 @router.get("/ingestion/document/{document_id}/status", tags=["ingestion"])
 async def coordinator_get_document_status(document_id: str):
     """Get processing status for a document via coordinator."""
-    mcp_message = MCPMessage(
+    mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
         receiver=AgentType.COORDINATOR,
         message_type=MessageType.REQUEST,
@@ -98,7 +98,7 @@ async def coordinator_cancel_processing(document_id: str):
 @router.delete("/ingestion/document/{document_id}", tags=["ingestion"])
 async def coordinator_delete_document(document_id: str):
     """Delete a document via coordinator."""
-    mcp_message = MCPMessage(
+    mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
         receiver=AgentType.COORDINATOR,
         message_type=MessageType.REQUEST,
@@ -112,7 +112,7 @@ async def coordinator_delete_document(document_id: str):
 @router.get("/ingestion/ingestion/stats", tags=["ingestion"]) 
 async def coordinator_get_ingestion_stats():
     """Get ingestion statistics via coordinator."""
-    mcp_message = MCPMessage(
+    mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
         receiver=AgentType.COORDINATOR,
         message_type=MessageType.REQUEST,
@@ -126,7 +126,7 @@ async def coordinator_get_ingestion_stats():
 @router.get("/ingestion/debug/documents", tags=["ingestion"]) 
 async def coordinator_debug_documents():
     """Debug: List all active and stored documents via coordinator."""
-    mcp_message = MCPMessage(
+    mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
         receiver=AgentType.COORDINATOR,
         message_type=MessageType.REQUEST,
@@ -145,7 +145,7 @@ async def coordinator_message(request: CoordinatorRequest):
     """
     try:
         # Build MCPMessage
-        mcp_message = MCPMessage(
+        mcp_message = create_mcp_message(
             sender=AgentType.COORDINATOR,
             receiver=AgentType.COORDINATOR,
             message_type=MessageType.REQUEST,
@@ -171,7 +171,7 @@ async def coordinator_message(request: CoordinatorRequest):
 @router.get("/coordinator/health", response_model=CoordinatorResponse)
 async def coordinator_health():
     try:
-        health = await coordinator._route_health(MCPMessage(
+        health = await coordinator._route_health(create_mcp_message(
             sender=AgentType.COORDINATOR,
             receiver=AgentType.COORDINATOR,
             message_type=MessageType.REQUEST,
