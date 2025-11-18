@@ -37,14 +37,18 @@ async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/ingestion/documents/{user_id}", tags=["ingestion"]) 
-async def coordinator_list_documents(user_id: str = "anonymous"): 
-    """List all documents for a user via coordinator."""
+@router.get("/ingestion/documents", tags=["ingestion"]) 
+async def coordinator_list_documents(user_id: str = None):
+    """List all documents, optionally filtered by user_id."""
+    payload = {"action": "list_documents"}
+    if user_id:
+        payload["user_id"] = user_id
+    
     mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
         receiver=AgentType.COORDINATOR,
         message_type=MessageType.REQUEST,
-        payload={"action": "list_documents", "user_id": user_id}
+        payload=payload
     )
     response = await coordinator._handle_message(mcp_message)
     if not response or response.message_type == MessageType.ERROR:

@@ -26,7 +26,7 @@ class Route:
     handler: Callable[[MCPMessage], Awaitable[MCPMessage]]
     description: str
     requires_agents: List[str] = None
-    timeout_seconds: float = 30.0
+    timeout_seconds: float = 60.0
 
 
 class CoordinatorError(Exception):
@@ -126,7 +126,8 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 "list_documents", 
                 self._route_list_user_documents,
                 "List all documents for a user_id",
-                requires_agents=["ingestion"]
+                requires_agents=["ingestion"], 
+                timeout_seconds=60.0
             ),
 
             # Document retrieval routes
@@ -281,6 +282,29 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
         try:
             self.stats["requests"] += 1
             
+            # Accept NOTIFICATION messages (e.g. document_processed) and handle them
+            # without returning an ERROR. Notifications are one-way events from
+            # downstream agents (like Ingestion) and should not produce an error
+            # response from the coordinator. We log them and optionally act on
+            # well-known events.
+            if message.message_type == MessageType.NOTIFICATION:
+                try:
+                    self.logger.info(f"Notification received from {message.sender}: {message.payload}")
+                    # Example: handle document_processed event to update stats or triggers
+                    payload = message.payload or {}
+                    event = payload.get("event")
+                    if event == "document_processed":
+                        # Update simple stats for observability
+                        self.stats.setdefault("notifications_received", 0)
+                        self.stats["notifications_received"] += 1
+                        # Could add additional handling here (webhook, metrics, etc.)
+
+                except Exception as e:
+                    self.logger.error(f"Error handling notification: {e}")
+
+                # Do not send a response for notifications (one-way)
+                return None
+
             if message.message_type != MessageType.REQUEST:
                 return create_error_message(message, "Unsupported message type")
 
@@ -378,10 +402,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
 
     async def _route_list_user_documents(self, message: MCPMessage) -> MCPMessage:
         """Route to get all the user documents."""
-        payload = message.payload or {} 
-        if "user_id" not in payload:
-            return create_error_message(message, "Missing required field: user_id")
-
+        # No longer require user_id - make it optional
         return await self._forward_to_agent('ingestion', message) 
 
     async def _route_cancel_processing(self, message: MCPMessage) -> MCPMessage:
