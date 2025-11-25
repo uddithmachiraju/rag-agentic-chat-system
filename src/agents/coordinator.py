@@ -305,6 +305,13 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 # Do not send a response for notifications (one-way)
                 return None
 
+            # Allow responses and errors to pass through so external callers
+            # (or the message bus) that forward these message types to the
+            # coordinator won't get an "Unsupported message type" error.
+            if message.message_type in (MessageType.RESPONSE, MessageType.ERROR):
+                self.logger.debug(f"Passing through message_type={message.message_type} from {message.sender}")
+                return message
+
             if message.message_type != MessageType.REQUEST:
                 return create_error_message(message, "Unsupported message type")
 
@@ -720,7 +727,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 return create_error_message(message, "Document processing timed out")
 
             # Step 3: Query the processed document
-            self.logger.info(f"Process-and-query Step 3: Querying processed document")
+            self.logger.info("Process-and-query Step 3: Querying processed document")
             
             query_payload = {
                 "question": payload["question"],
@@ -915,7 +922,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 message.sender = self.agent_type
                 message.receiver = agent.agent_type
 
-                response = await self.message_bus.request_response(message, timeout=None)
+                response = await self.message_bus.request_response(message, timeout=60.0) 
                 if not response:
                     # Fall back to direct in-process call if bus didn't return a response
                     self.logger.debug("Message bus request_response returned no response; falling back to direct handler")
