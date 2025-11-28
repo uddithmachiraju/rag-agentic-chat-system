@@ -1,14 +1,13 @@
 from fastapi import FastAPI 
-from src.config.logging import setup_logging
-setup_logging() 
-from .endpoints.health import health_router 
-from .endpoints.ingestion.routes import document_router 
 from contextlib import asynccontextmanager 
+from src.config.logging import setup_logging
 from src.agents.agent_singleton import coordinator_agent
-
+# from .endpoints.health import health_router 
+# from .endpoints.ingestion.routes import document_router 
 from src.api.endpoints.coordinator.routes import router as coordinator_router
 from src.api.endpoints.mcp.routes import mcp_router
-from src.api.endpoints.retrieval.routes import router as retrieval_router
+
+setup_logging()
 
 
 @asynccontextmanager

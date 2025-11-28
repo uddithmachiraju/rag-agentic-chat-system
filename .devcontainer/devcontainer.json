@@ -28,7 +28,12 @@
 			"extensions": [
 				"GitHub.copilot",
                 "ms-vscode.makefile-tools",
-				"tamasfe.even-better-toml"
+				"tamasfe.even-better-toml", 
+				"ms-python.vscode-pylance", 
+				"charliermarsh.ruff", 
+				"mads-hartmann.bash-ide-vscode", 
+				"emilast.logfilehighlighter", 
+				"github.copilot-chat"
 			],
 			"settings": {
 				"terminal.integrated.env.linux": {

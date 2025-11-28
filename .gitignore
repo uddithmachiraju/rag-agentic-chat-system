@@ -62,3 +62,9 @@ temp/
 data/
 project-structure.md
 Agentic RAG Chatbot for Multi-Format Document QA u.md
+
+# extra
+*.drawio
+*.dtmp
+*.bkp
+openapi.json 

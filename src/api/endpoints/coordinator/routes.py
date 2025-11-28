@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+# from fastapi.responses import JSONResponse
 import uuid
 import shutil
 from pathlib import Path
@@ -15,7 +15,7 @@ coordinator = coordinator_agent
 UPLOAD_DIR = Path("./uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-@router.post("/ingestion/upload", tags=["ingestion"]) 
+@router.post("/upload", tags=["ingestion"]) 
 async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("anonymous")):
     """Upload a document for ingestion via coordinator."""
     file_id = str(uuid.uuid4().hex[:6])
@@ -32,13 +32,14 @@ async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("
         )
         response = await coordinator._handle_message(mcp_message)
         if not response or response.message_type == MessageType.ERROR:
-            raise HTTPException(status_code=500, detail=response.payload.get("error", "Ingestion failed"))
+            error_detail = response.payload.get("error", "Ingestion failed") if response else "Ingestion failed"
+            raise HTTPException(status_code=500, detail=error_detail)
         return response.payload
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/ingestion/documents", tags=["ingestion"]) 
-async def coordinator_list_documents(user_id: str = None):
+@router.get("/documents", tags=["ingestion"]) 
+async def coordinator_list_documents(user_id: str = "anonymous"):
     """List all documents, optionally filtered by user_id."""
     payload = {"action": "list_documents"}
     if user_id:
@@ -52,10 +53,11 @@ async def coordinator_list_documents(user_id: str = None):
     )
     response = await coordinator._handle_message(mcp_message)
     if not response or response.message_type == MessageType.ERROR:
-        raise HTTPException(status_code=500, detail=response.payload.get("error", "List failed"))
+        error_detail = response.payload.get("error", "List failed") if response else "List failed"
+        raise HTTPException(status_code=500, detail=error_detail)
     return response.payload
 
-@router.get("/ingestion/document/{document_id}", tags=["ingestion"]) 
+@router.get("/document/{document_id}", tags=["ingestion"]) 
 async def coordinator_get_document(document_id: str):
     """Get document details and chunks via coordinator."""
     mcp_message = create_mcp_message(
@@ -66,11 +68,12 @@ async def coordinator_get_document(document_id: str):
     )
     response = await coordinator._handle_message(mcp_message)
     if not response or response.message_type == MessageType.ERROR:
-        raise HTTPException(status_code=500, detail=response.payload.get("error", "Get failed"))
+        error_detail = response.payload.get("error", "Get failed") if response else "Get failed"
+        raise HTTPException(status_code=500, detail=error_detail)
     # Return the full MCPMessage as a dict (model_dump), not just the payload
     return response.model_dump()
 
-@router.get("/ingestion/document/{document_id}/status", tags=["ingestion"])
+@router.get("/document/{document_id}/status", tags=["ingestion"])
 async def coordinator_get_document_status(document_id: str):
     """Get processing status for a document via coordinator."""
     mcp_message = create_mcp_message(
@@ -81,11 +84,12 @@ async def coordinator_get_document_status(document_id: str):
     )
     response = await coordinator._handle_message(mcp_message)
     if not response or response.message_type == MessageType.ERROR:
-        raise HTTPException(status_code=500, detail=response.payload.get("error", "Status failed"))
+        error_detail = response.payload.get("error", "Status failed") if response else "Status failed"
+        raise HTTPException(status_code=500, detail=error_detail)
     return response.payload
 
 
-@router.post("/ingestion/document/{document_id}/cancel", tags=["ingestion"])
+@router.post("/document/{document_id}/cancel", tags=["ingestion"])
 async def coordinator_cancel_processing(document_id: str):
     """Cancel processing for a document via coordinator."""
     mcp_message = MCPMessage(
@@ -96,10 +100,11 @@ async def coordinator_cancel_processing(document_id: str):
     )
     response = await coordinator._handle_message(mcp_message)
     if not response or response.message_type == MessageType.ERROR:
-        raise HTTPException(status_code=500, detail=response.payload.get("error", "Cancel failed"))
+        error_detail = response.payload.get("error", "Cancel failed") if response else "Cancel failed"
+        raise HTTPException(status_code=500, detail=error_detail)
     return response.payload
 
-@router.delete("/ingestion/document/{document_id}", tags=["ingestion"])
+@router.delete("/document/{document_id}", tags=["ingestion"])
 async def coordinator_delete_document(document_id: str):
     """Delete a document via coordinator."""
     mcp_message = create_mcp_message(
@@ -110,10 +115,11 @@ async def coordinator_delete_document(document_id: str):
     )
     response = await coordinator._handle_message(mcp_message)
     if not response or response.message_type == MessageType.ERROR:
-        raise HTTPException(status_code=500, detail=response.payload.get("error", "Delete failed"))
+        error_detail = response.payload.get("error", "Delete failed") if response else "Delete failed"
+        raise HTTPException(status_code=500, detail=error_detail)
     return response.payload
 
-@router.get("/ingestion/ingestion/stats", tags=["ingestion"]) 
+@router.get("/stats", tags=["ingestion"]) 
 async def coordinator_get_ingestion_stats():
     """Get ingestion statistics via coordinator."""
     mcp_message = create_mcp_message(
@@ -127,7 +133,7 @@ async def coordinator_get_ingestion_stats():
         raise HTTPException(status_code=500, detail=response.payload.get("error", "Stats failed"))
     return response.payload
 
-@router.get("/ingestion/debug/documents", tags=["ingestion"]) 
+@router.get("/debug/documents", tags=["ingestion"]) 
 async def coordinator_debug_documents():
     """Debug: List all active and stored documents via coordinator."""
     mcp_message = create_mcp_message(
@@ -141,7 +147,7 @@ async def coordinator_debug_documents():
         raise HTTPException(status_code=500, detail=response.payload.get("error", "Debug failed"))
     return response.payload
 
-@router.post("/coordinator/message", response_model=CoordinatorResponse)
+@router.post("/coordinator/message", tags=["coordinator"], response_model=CoordinatorResponse)
 async def coordinator_message(request: CoordinatorRequest):
     """
     Generic endpoint for sending messages to CoordinatorAgent.
@@ -172,7 +178,7 @@ async def coordinator_message(request: CoordinatorRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Check Coordinator and agent health.
-@router.get("/coordinator/health", response_model=CoordinatorResponse)
+@router.get("/coordinator/health", tags=["coordinator"], response_model=CoordinatorResponse)
 async def coordinator_health():
     try:
         health = await coordinator._route_health(create_mcp_message(
@@ -186,7 +192,7 @@ async def coordinator_health():
         return CoordinatorResponse(success=False, error=str(e))
 
 # List all built-in coordinator routes
-@router.get("/coordinator/routes")
+@router.get("/coordinator/routes", tags=["coordinator"])
 async def coordinator_list_routes():
     """List all available built-in coordinator routes."""
     routes_info = []
@@ -198,3 +204,67 @@ async def coordinator_list_routes():
             "timeout_seconds": route.timeout_seconds
         })
     return {"routes": routes_info}
+
+@router.get("/llm/stats", tags=["llm"], response_model=CoordinatorResponse)
+async def get_llm_stats():
+    """Get LLM statistics from the LLM agent."""
+    try:
+        # Create message with get_stats action for the LLM agent
+        # The coordinator will route this through _route_get_llm_stats
+        mcp_message = create_mcp_message(
+            sender=AgentType.COORDINATOR,
+            receiver=AgentType.COORDINATOR, 
+            message_type=MessageType.REQUEST, 
+            payload={"action": "get_llm_stats"} 
+        )
+
+        response = await coordinator._handle_message(mcp_message) 
+        if not response or response.message_type == MessageType.ERROR:
+            error_msg = response.payload.get("error", "Stats failed") if response else "Stats failed"
+            return CoordinatorResponse(success=False, error=error_msg)
+        
+        return CoordinatorResponse(success=True, payload=response.payload)
+    except Exception as e:
+        return CoordinatorResponse(success=False, error=str(e))
+    
+@router.post("/retrieval/query", tags=["retrieval"], response_model=CoordinatorResponse)
+async def retrieval_query(query: str):
+    """Send a query to the retrieval agent via coordinator."""
+    try:
+        mcp_message = create_mcp_message(
+            sender=AgentType.COORDINATOR,
+            receiver=AgentType.COORDINATOR,
+            message_type=MessageType.REQUEST,
+            payload={"action": "retrieve_documents", "query": query}
+        )
+
+        response = await coordinator._handle_message(mcp_message)
+        if not response or response.message_type == MessageType.ERROR:
+            error_msg = response.payload.get("error", "Query failed") if response else "Query failed"
+            return CoordinatorResponse(success=False, error=error_msg)
+
+        return CoordinatorResponse(success=True, payload=response.payload)
+    except Exception as e:
+        return CoordinatorResponse(success=False, error=str(e))
+
+@router.get("/retrieval/stats", tags=["retrieval"], response_model=CoordinatorResponse)
+async def get_retrieval_stats():
+    """Get retrieval statistics from the retrieval agent."""
+    try:
+        # Create message with get_stats action for the retrieval agent
+        # The coordinator will route this through _route_get_retrieval_stats
+        mcp_message = create_mcp_message(
+            sender=AgentType.COORDINATOR,
+            receiver=AgentType.COORDINATOR, 
+            message_type=MessageType.REQUEST, 
+            payload={"action": "get_retrieval_stats"} 
+        )
+
+        response = await coordinator._handle_message(mcp_message) 
+        if not response or response.message_type == MessageType.ERROR:
+            error_msg = response.payload.get("error", "Stats failed") if response else "Stats failed"
+            return CoordinatorResponse(success=False, error=error_msg)
+        
+        return CoordinatorResponse(success=True, payload=response.payload)
+    except Exception as e:
+        return CoordinatorResponse(success=False, error=str(e))

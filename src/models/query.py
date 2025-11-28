@@ -41,7 +41,7 @@ class QueryFilters(BaseModel):
     chunk_types: Optional[List[str]] = None
     date_range: Optional[Dict[str, datetime]] = None
     metadata_filters: Dict[str, Any] = Field(default_factory=dict)
-    similarity_threshold: float = Field(0.7, ge=0.0, le=1.0)
+    similarity_threshold: float = Field(0.1, ge=0.0, le=1.0)
     max_results: int = Field(5, ge=1, le=50)
     
     @validator('date_range')

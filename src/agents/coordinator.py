@@ -25,7 +25,7 @@ class Route:
     action: str
     handler: Callable[[MCPMessage], Awaitable[MCPMessage]]
     description: str
-    requires_agents: List[str] = None
+    requires_agents: List[str] = None 
     timeout_seconds: float = 60.0
 
 
@@ -39,7 +39,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
     Routes requests to appropriate agents and handles complex workflows.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(AgentType.COORDINATOR)
         self.settings = get_settings()
 
@@ -59,7 +59,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
         self.routes: Dict[str, Route] = {}
 
         # Statistics - match the JSON structure
-        self.stats = {
+        self.stats: Dict[str, Any] = {
             "requests": 0,
             "errors": 0,
             "avg_latency_ms": 0.0,
@@ -150,7 +150,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 requires_agents=["retrieval"]
             ),
             "get_retrieval_stats": Route(
-                "get_retrieval_stats",
+                "get_stats",
                 self._route_get_retrieval_stats,
                 "Get retrieval agent statistics",
                 requires_agents=["retrieval"]
@@ -297,6 +297,15 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                         # Update simple stats for observability
                         self.stats.setdefault("notifications_received", 0)
                         self.stats["notifications_received"] += 1
+                        # Invalidate retrieval cache so new documents are discoverable
+                        try:
+                            if hasattr(self, 'retrieval_agent') and self.retrieval_agent:
+                                # retrieval_agent.clear_cache is synchronous
+                                if hasattr(self.retrieval_agent, 'clear_cache'):
+                                    self.retrieval_agent.clear_cache()
+                                    self.logger.info("Retrieval cache cleared due to new document_processed notification")
+                        except Exception as e:
+                            self.logger.error(f"Failed to clear retrieval cache: {e}")
                         # Could add additional handling here (webhook, metrics, etc.)
 
                 except Exception as e:
@@ -533,6 +542,8 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
 
     async def _route_get_retrieval_stats(self, message: MCPMessage) -> MCPMessage:
         """Get retrieval agent statistics."""
+        # Change action to what the retrieval agent expects
+        message.payload["action"] = "get_stats"
         return await self._forward_to_agent('retrieval', message)
 
     # ==================== LLM RESPONSE ROUTES ====================
@@ -552,6 +563,8 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
 
     async def _route_get_llm_stats(self, message: MCPMessage) -> MCPMessage:
         """Get LLM agent statistics."""
+        # Change action to what the LLM agent expects
+        message.payload["action"] = "get_stats"
         return await self._forward_to_agent('llm', message)
 
     # ==================== COMPLEX WORKFLOW ROUTES ====================
@@ -754,7 +767,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
         start_time_dt = datetime.fromisoformat(self.stats["start_time"].replace('Z', '+00:00')) if isinstance(self.stats["start_time"], str) else self.stats["start_time"]
         uptime_seconds = (datetime.utcnow() - start_time_dt).total_seconds()
         
-        health = {
+        health: Dict[str, Any] = {
             "coordinator": {
                 "healthy": self.is_healthy(),
                 "state": self.state,
@@ -800,7 +813,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                         "queue_size": agent.processing_queue.qsize() if hasattr(agent, 'processing_queue') else 0,
                         "active_documents": len(getattr(agent, 'active_documents', {})),
                         "active_tasks": len(getattr(agent, 'processing_tasks', {})),
-                        "supported_formats": len(getattr(agent, 'parser_registry', {}).get_supported_extensions()) if hasattr(agent, 'parser_registry') else 1,
+                        "supported_formats": len(getattr(agent, 'parser_registry', {}).get_supported_extensions()) if hasattr(agent, 'parser_registry') and hasattr(getattr(agent, 'parser_registry'), 'get_supported_extensions') else 1,
                         "statistics": getattr(agent, 'stats', {}),
                         "parser_availability": {"pdf": True}  # Default based on JSON
                     })
@@ -856,7 +869,10 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 }
 
         # Overall system health - match JSON structure
-        agent_healths = [agent.get("healthy", False) for agent in health["agents"].values()]
+        agent_healths = [
+            agent.get("healthy", False) if isinstance(agent, dict) else agent.healthy 
+            for agent in health["agents"].values()
+        ]
         health["system"] = {
             "healthy": health["coordinator"]["healthy"] and any(agent_healths),
             "total_agents": len(self.agents),
@@ -948,7 +964,7 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
         """Build retrieval filters from request payload."""
         filters = {
             "max_results": payload.get("k", payload.get("max_results", 6)),
-            "similarity_threshold": payload.get("threshold", payload.get("similarity_threshold", 0.7))
+            "similarity_threshold": payload.get("threshold", payload.get("similarity_threshold", 0.1))
         }
         
         # Add specific filters

@@ -450,7 +450,7 @@ class RetrievalStrategyOperations:
 class RetrievalAgent(BaseAgent):
     """Advanced retrieval agent with intelligent search capabilities."""
 
-    def semantic_chunk_text(self, text: str, chunk_size: int = 200, overlap: int = 30, strategy: str = "paragraph") -> List[Dict[str, Any]]:
+    def semantic_chunk_text(self, text: str, chunk_size: int = 200, overlap: int = 30, strategy: str = "sentence") -> List[Dict[str, Any]]:
         """Chunk text using semantic boundaries: paragraphs, sentences, or words."""
         # Download punkt if not already
         try:
@@ -713,6 +713,11 @@ class RetrievalAgent(BaseAgent):
                     'chunks_added': len(chunks),
                     'message': f'Successfully added {len(chunks)} chunks to vector store'
                 }
+                # Invalidate cache after new documents are added
+                try:
+                    self.clear_cache()
+                except Exception:
+                    self.logger.warning("Failed to clear cache after add_documents")
             else:
                 response_payload = {
                     'success': False,
@@ -863,6 +868,15 @@ class RetrievalAgent(BaseAgent):
                 del self.query_cache[key]
         
         self.query_cache[cache_key] = results
+
+    def clear_cache(self) -> None:
+        """Clear the query cache (used when the index changes)."""
+        try:
+            cleared = len(self.query_cache)
+            self.query_cache.clear()
+            self.logger.info(f"Cleared retrieval query cache ({cleared} entries)")
+        except Exception as e:
+            self.logger.error(f"Failed to clear retrieval cache: {e}")
     
     def _update_stats(self, strategy: RetrievalStrategy, processing_time: float, results_count: int) -> None:
         """Update agent statistics."""

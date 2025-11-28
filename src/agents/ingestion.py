@@ -1,8 +1,9 @@
 import asyncio 
 import time 
+import os 
 import json 
 from pathlib import Path 
-from typing import Dict, Any, List, Optional, Type, Union
+from typing import Dict, Any, List, Optional, Union
 import hashlib 
 import shutil 
 from datetime import datetime
@@ -17,11 +18,11 @@ from ..models.document import (
 
 from ..mcp.protocol import (MCPMessage, MessageType, AgentType, 
     create_response_message, create_error_message, create_mcp_message,
-    DocumentProcessingRequest, DocumentProcessingResponse
+    DocumentProcessingRequest
 )
 
 from ..parsers.registry import (
-    BaseParser, PDFParser, ParserRegistry,
+    ParserRegistry,
 )
 
 from ..parsers.base_parser import ParseResult
@@ -47,10 +48,10 @@ class DocumentValidator:
             'exe', 'bat', 'cmd', 'com', 'pif', 'scr', 'vbs', 'js'
         }
     
-    def validate_file(self, file_path: str, options: ProcessingOptions = None) -> Dict[str, Any]:
+    def validate_file(self, file_path: str, options: Optional[ProcessingOptions] = None) -> Dict[str, Any]:
         """Validate file for processing."""
         
-        validation_result = {
+        validation_result: Dict[str, Any] = {
             'valid': False,
             'errors': [],
             'warnings': [],
@@ -116,7 +117,7 @@ class DocumentValidator:
     def _validate_file_format(self, file_path: str, extension: str) -> Dict[str, List[str]]:
         """Perform format-specific validation."""
         
-        result = {'warnings': [], 'errors': []}
+        result: Dict[str, Any] = {'warnings': [], 'errors': []}
         
         try:
             if extension == 'pdf':
@@ -218,7 +219,7 @@ class DocumentStorage:
     def get_storage_stats(self) -> Dict[str, Any]:
         """Get storage statistics."""
         
-        stats = {
+        stats: Dict[str, Any] = {
             'total_files': 0,
             'total_size': 0,
             'files_by_extension': {},
@@ -227,14 +228,14 @@ class DocumentStorage:
         }
         
         try:
-            oldest_time = float('inf')
-            newest_time = 0
+            oldest_time: float = float('inf')
+            newest_time: float = 0.0
             
             for file_path in self.original_files_path.iterdir():
                 if file_path.is_file():
                     stats['total_files'] += 1
                     
-                    file_stat = file_path.stat()
+                    file_stat: os.stat_result = file_path.stat()
                     stats['total_size'] += file_stat.st_size
                     
                     extension = file_path.suffix.lower()
@@ -257,7 +258,7 @@ class DocumentStorage:
 class IngestionAgent(BaseAgent, LoggerMixin): 
     """Advanced document ingestion agent with comprehensive processing pipeline."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(AgentType.INGESTION)
         self.settings = get_settings()
         self.validator = DocumentValidator()
@@ -476,7 +477,7 @@ class IngestionAgent(BaseAgent, LoggerMixin):
         
         try:
             # Get current statistics
-            current_stats = self.stats.copy()
+            current_stats: Dict[str, Any] = self.stats.copy()
             current_stats['active_documents'] = len(self.active_documents)
             current_stats['queue_size'] = self.processing_queue.qsize()
             current_stats['storage_stats'] = self.storage.get_storage_stats()
@@ -871,7 +872,7 @@ class IngestionAgent(BaseAgent, LoggerMixin):
             await self._process_document(document, processing_request)
 
         # Return detailed info after processing
-        processed_doc = self.active_documents.get(document_id)
+        processed_doc: Document = self.active_documents.get(document_id) 
         return {
             "document_id": processed_doc.document_id,
             "file_name": processed_doc.file_name,
@@ -976,7 +977,7 @@ class IngestionAgent(BaseAgent, LoggerMixin):
             
             # Restore chunks
             for chunk_data in doc_data.get("chunks", []):
-                chunk = DocumentChunk(
+                chunk: DocumentChunk = DocumentChunk(
                     chunk_id=chunk_data["chunk_id"],
                     document_id=chunk_data["document_id"],
                     chunk_index=chunk_data["chunk_index"],
@@ -1035,6 +1036,7 @@ class IngestionAgent(BaseAgent, LoggerMixin):
                     doc_id = metadata_file.stem
 
                     stored_doc = await self.load_document_from_storage(doc_id)
+                    # self.logger.debug(f"Loaded stored document {doc_id} for listing.") 
                     if stored_doc and (user_id == "anonymous" or stored_doc.user_id == user_id):
                         documents.append(stored_doc.model_dump())
 

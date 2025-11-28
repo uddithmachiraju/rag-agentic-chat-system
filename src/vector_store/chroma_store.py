@@ -268,7 +268,7 @@ class ChromaVectorStore(BaseVectorStore):
         self,
         query_embedding: List[float],
         max_results: int = 5,
-        similarity_threshold: float = 0.3,
+        similarity_threshold: float = 0.1,
         filters: Optional[Dict[str, Any]] = None
     ) -> RetrievalResults:
         """Perform similarity search in ChromaDB with detailed debugging."""
