@@ -129,6 +129,19 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 requires_agents=["ingestion"], 
                 timeout_seconds=60.0
             ),
+            # "chunking_strategies": Route(
+            #     "chunking_strategies",
+            #     self._route_get_chunking_strateg`ies,
+            #     "Get available chunking strategies",
+            #     requires_agents=["ingestion"]
+            # ),
+            "list_document_chunks": Route(
+                "list_document_chunks",
+                self._route_list_document_chunks,
+                "List chunks for a document with pagination",
+                requires_agents=["ingestion"],
+                timeout_seconds=60.0
+            ),
 
             # Document retrieval routes
             "retrieve_documents": Route(
@@ -153,6 +166,12 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
                 "get_stats",
                 self._route_get_retrieval_stats,
                 "Get retrieval agent statistics",
+                requires_agents=["retrieval"]
+            ),
+            "analyze_query": Route(
+                "analyze_query",
+                self._route_analyze_query,
+                "Analyze a query using the retrieval agent",
                 requires_agents=["retrieval"]
             ),
 
@@ -420,6 +439,18 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
         """Route to get all the user documents."""
         # No longer require user_id - make it optional
         return await self._forward_to_agent('ingestion', message) 
+    
+    async def _route_list_document_chunks(self, message: MCPMessage) -> MCPMessage:
+        """List chunks for a document with pagination via ingestion agent."""
+        payload = message.payload or {}
+        if "document_id" not in payload:
+            return create_error_message(message, "Missing required field: document_id")
+
+        return await self._forward_to_agent('ingestion', message) 
+    
+    # async def _route_get_chunking_strategies(self, message: MCPMessage) -> MCPMessage:
+    #     """Get available chunking strategies from ingestion agent."""
+    #     return await self._forward_to_agent('ingestion', message)
 
     async def _route_cancel_processing(self, message: MCPMessage) -> MCPMessage:
         """Route processing cancellation to ingestion agent."""
@@ -531,6 +562,10 @@ class CoordinatorAgent(BaseAgent, LoggerMixin):
         )
 
         return await self._forward_to_agent('retrieval', retrieval_message)
+    
+    async def _route_analyze_query(self, message: MCPMessage) -> MCPMessage:
+        """Route query analysis to retrieval agent."""
+        return await self._forward_to_agent('retrieval', message)
 
     async def _route_add_documents(self, message: MCPMessage) -> MCPMessage:
         """Route add documents to retrieval agent."""

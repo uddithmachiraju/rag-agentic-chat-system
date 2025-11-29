@@ -1,7 +1,5 @@
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
-"""Advanced retrieval agent with intelligent search strategies and query processing."""
-
 import time
 from typing import Dict, Any, List, Optional
 import re
@@ -589,6 +587,9 @@ class RetrievalAgent(BaseAgent):
                 elif message.payload.get('action') == 'delete_documents':
                     return await self._handle_delete_documents_request(message)
                 
+                elif message.payload.get('action') == 'analyze_query':
+                    return await self._handle_analyze_query_request(message)
+                
                 elif message.payload.get('action') == 'get_stats':
                     return await self._handle_stats_request(message)
                 
@@ -762,6 +763,29 @@ class RetrievalAgent(BaseAgent):
             
         except Exception as e:
             error_msg = f"Delete documents request failed: {str(e)}"
+            self.logger.error(error_msg)
+            return create_error_message(message, error_msg)
+        
+    async def _handle_analyze_query_request(self, message: MCPMessage) -> MCPMessage:
+        """Handle query analysis request."""
+
+        try:
+            request_data = message.payload
+
+            if 'query' not in request_data:
+                return create_error_message(message, "Missing required filed: query")
+            
+            query_text = request_data['query'] 
+            context = None 
+
+            if 'conversation_context' in request_data and request_data['conversation_context']:
+                context_data = request_data['conversation_context']
+                context = ConversationContext(**context_data) 
+            analysis = self.query_processor.process_query(query_text, context)
+            return create_response_message(message, analysis)
+            
+        except Exception as e:
+            error_msg = f"Analyze query request failed: {str(e)}"
             self.logger.error(error_msg)
             return create_error_message(message, error_msg)
     

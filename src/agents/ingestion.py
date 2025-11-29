@@ -334,6 +334,12 @@ class IngestionAgent(BaseAgent, LoggerMixin):
                 elif message.payload.get('action') == 'list_every_document':
                     return await self.list_every_document(message)
                 
+                # elif message.payload.get('action') == 'chunking_strategies':
+                #     return await self._handle_get_chunking_strategies_request(message)
+
+                elif message.payload.get('action') == 'list_document_chunks':
+                    return await self.list_document_chunks(message)
+                
                 else:
                     return create_error_message(
                         message, 
@@ -1072,4 +1078,68 @@ class IngestionAgent(BaseAgent, LoggerMixin):
 
         except Exception as e:
             self.logger.exception(f"Failed to list every document: {e}")
+            return create_error_message(message, str(e))
+        
+    # async def _handle_get_chunking_strategies_request(self, message: MCPMessage) -> MCPMessage:
+    #     """Handle request to get available chunking strategies."""
+    #     try:
+    #         strategies = 
+    #         return create_response_message(message, {"chunking_strategies": strategies})
+    #     except Exception as e:
+    #         self.logger.error(f"Error handling chunking strategies request: {e}")
+    #         return create_error_message(message, str(e))
+
+    async def list_document_chunks(self, message: MCPMessage) -> MCPMessage:
+        """List chunks for a document with pagination."""
+        try:
+            payload = message.payload or {}
+            document_id = payload.get("document_id")
+            page = int(payload.get("page", 1))
+            page_size = int(payload.get("page_size", 10))
+
+            if not document_id:
+                return create_error_message(message, "Missing required field: document_id")
+
+            # Try to get document from active memory
+            document = self.active_documents.get(document_id)
+
+            # If not in active memory, try to load from storage
+            if not document:
+                document = await self.load_document_from_storage(document_id)
+
+            if not document:
+                return create_error_message(message, f"Document {document_id} not found")
+
+            total_chunks = len(document.chunks)
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            paginated_chunks = document.chunks[start_index:end_index]
+
+            chunk_list = [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "start_char": chunk.start_char,
+                    "end_char": chunk.end_char,
+                    "page_number": chunk.page_number,
+                    "embedding_vector": chunk.embedding_vector,
+                    "embedding_model": chunk.embedding_model,
+                    "created_at": chunk.created_at.isoformat()
+                }
+                for chunk in paginated_chunks
+            ]
+
+            response_payload = {
+                "document_id": document_id,
+                "total_chunks": total_chunks,
+                "page": page,
+                "page_size": page_size,
+                "chunks": chunk_list
+            }
+
+            return create_response_message(message, response_payload)
+
+        except Exception as e:
+            self.logger.error(f"Error listing document chunks: {e}")
             return create_error_message(message, str(e))

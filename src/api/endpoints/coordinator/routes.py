@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 import uuid
 import shutil
 from pathlib import Path
+from typing import Optional 
 
 from src.api.endpoints.coordinator.schemas import CoordinatorRequest, CoordinatorResponse
 from src.agents.agent_singleton import coordinator_agent
@@ -15,8 +16,8 @@ coordinator = coordinator_agent
 UPLOAD_DIR = Path("./uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-@router.post("/upload", tags=["ingestion"]) 
-async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("anonymous")):
+@router.post("/ingestion/upload", tags=["ingestion"]) 
+async def upload_document(file: UploadFile = File(...), user_id: str = Form("anonymous")):
     """Upload a document for ingestion via coordinator."""
     file_id = str(uuid.uuid4().hex[:6])
     file_path = UPLOAD_DIR / f"{file_id}_{file.filename}"
@@ -38,8 +39,8 @@ async def coordinator_upload(file: UploadFile = File(...), user_id: str = Form("
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/documents", tags=["ingestion"]) 
-async def coordinator_list_documents(user_id: str = "anonymous"):
+@router.get("/ingestion/documents", tags=["ingestion"]) 
+async def list_documents(user_id: str = "anonymous"):
     """List all documents, optionally filtered by user_id."""
     payload = {"action": "list_documents"}
     if user_id:
@@ -57,8 +58,8 @@ async def coordinator_list_documents(user_id: str = "anonymous"):
         raise HTTPException(status_code=500, detail=error_detail)
     return response.payload
 
-@router.get("/document/{document_id}", tags=["ingestion"]) 
-async def coordinator_get_document(document_id: str):
+@router.get("/ingestion/document/{document_id}", tags=["ingestion"]) 
+async def get_document(document_id: str):
     """Get document details and chunks via coordinator."""
     mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
@@ -73,8 +74,8 @@ async def coordinator_get_document(document_id: str):
     # Return the full MCPMessage as a dict (model_dump), not just the payload
     return response.model_dump()
 
-@router.get("/document/{document_id}/status", tags=["ingestion"])
-async def coordinator_get_document_status(document_id: str):
+@router.get("/ingestion/document/{document_id}/status", tags=["ingestion"])
+async def get_document_status(document_id: str):
     """Get processing status for a document via coordinator."""
     mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
@@ -89,8 +90,8 @@ async def coordinator_get_document_status(document_id: str):
     return response.payload
 
 
-@router.post("/document/{document_id}/cancel", tags=["ingestion"])
-async def coordinator_cancel_processing(document_id: str):
+@router.post("/ingestion/document/{document_id}/cancel", tags=["ingestion"])
+async def cancel_processing(document_id: str):
     """Cancel processing for a document via coordinator."""
     mcp_message = MCPMessage(
         sender=AgentType.COORDINATOR,
@@ -104,8 +105,8 @@ async def coordinator_cancel_processing(document_id: str):
         raise HTTPException(status_code=500, detail=error_detail)
     return response.payload
 
-@router.delete("/document/{document_id}", tags=["ingestion"])
-async def coordinator_delete_document(document_id: str):
+@router.delete("/ingestion/document/{document_id}", tags=["ingestion"])
+async def delete_document(document_id: str):
     """Delete a document via coordinator."""
     mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
@@ -119,8 +120,46 @@ async def coordinator_delete_document(document_id: str):
         raise HTTPException(status_code=500, detail=error_detail)
     return response.payload
 
-@router.get("/stats", tags=["ingestion"]) 
-async def coordinator_get_ingestion_stats():
+@router.get("/ingestion/documents/{document_id}/chunks", tags=["ingestion"])
+async def get_document_chunks(document_id: str, limit: int = 10, offset: int = 0):
+    """List chunks for a document (with pagination)."""
+
+    try:
+        mcp_message = create_mcp_message(
+            sender=AgentType.COORDINATOR,
+            receiver=AgentType.COORDINATOR,
+            message_type=MessageType.REQUEST,
+            payload={"action": "list_document_chunks", "document_id": document_id, "limit": limit, "offset": offset}
+        )
+        response = await coordinator._handle_message(mcp_message)
+        if not response or response.message_type == MessageType.ERROR:
+            error_detail = response.payload.get("error", "List chunks failed") if response else "List chunks failed"
+            raise HTTPException(status_code=500, detail=error_detail)
+        return response.payload
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# @router.get("/ingestion/chunking/strategies", tags=["ingestion"], response_model=CoordinatorResponse)
+# async def get_chunking_strategies():
+#     """Get available chuncking strategies."""
+#     try:
+#         mcp_message = create_mcp_message(
+#             sender=AgentType.COORDINATOR, 
+#             receiver=AgentType.COORDINATOR, 
+#             message_type=MessageType.REQUEST, 
+#             payload={"action": "chunking_strategies"}
+#         )
+#         response = await coordinator._handle_message(mcp_message) 
+#         if not response or response.message_type == MessageType.ERROR:
+#             error_msg = response.payload.get("error", "Failed to get strategies") if response else "Failed to get strategies"
+#             raise HTTPException(status_code=500, detail=error_msg)
+#         return CoordinatorResponse(success=True, payload=response.payload)
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/ingestion/stats", tags=["ingestion"]) 
+async def get_ingestion_stats():
     """Get ingestion statistics via coordinator."""
     mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
@@ -133,8 +172,8 @@ async def coordinator_get_ingestion_stats():
         raise HTTPException(status_code=500, detail=response.payload.get("error", "Stats failed"))
     return response.payload
 
-@router.get("/debug/documents", tags=["ingestion"]) 
-async def coordinator_debug_documents():
+@router.get("/ingestion/debug/documents", tags=["ingestion"]) 
+async def debug_documents():
     """Debug: List all active and stored documents via coordinator."""
     mcp_message = create_mcp_message(
         sender=AgentType.COORDINATOR,
@@ -227,9 +266,29 @@ async def get_llm_stats():
     except Exception as e:
         return CoordinatorResponse(success=False, error=str(e))
     
+@router.post("/retrieval/query/analyze", tags=["retrieval"], response_model=CoordinatorResponse)
+async def query_analyze(query: str, context: Optional[str] = None):
+    """Analyze a query using the retrieval agent via coordinator."""
+    try:
+        mcp_message = create_mcp_message(
+            sender=AgentType.COORDINATOR,
+            receiver=AgentType.COORDINATOR,
+            message_type=MessageType.REQUEST,
+            payload={"action": "analyze_query", "query": query, "conversation_context": context}
+        )
+
+        response = await coordinator._handle_message(mcp_message)
+        if not response or response.message_type == MessageType.ERROR:
+            error_msg = response.payload.get("error", "Query failed") if response else "Query failed"
+            return CoordinatorResponse(success=False, error=error_msg)
+
+        return CoordinatorResponse(success=True, payload=response.payload)
+    except Exception as e:
+        return CoordinatorResponse(success=False, error=str(e))
+    
 @router.post("/retrieval/query", tags=["retrieval"], response_model=CoordinatorResponse)
-async def retrieval_query(query: str):
-    """Send a query to the retrieval agent via coordinator."""
+async def perform_retrieval_query(query: str):
+    """Perform a retrieval query via the retrieval agent through coordinator."""
     try:
         mcp_message = create_mcp_message(
             sender=AgentType.COORDINATOR,
