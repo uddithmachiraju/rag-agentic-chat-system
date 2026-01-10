@@ -16,3 +16,4 @@ numpy==1.26.4
 asyncio-mqtt==0.16.1
 pytest==8.4.1
 nltk==3.9.1
+sentence-transformers==5.2.0

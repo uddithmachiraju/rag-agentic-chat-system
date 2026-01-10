@@ -1,21 +1,18 @@
 
 """ChromaDB implementation of vector store."""
 
-import asyncio
 import time
-from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
-import json
+from typing import Any, Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings
-from chromadb.utils import embedding_functions
 
 from ..config import get_settings
-from ..models.document import DocumentChunk, ChunkType
-from ..models.query import SearchResult, RetrievalResults, RetrievalStrategy
+from ..models.document import ChunkType, DocumentChunk
+from ..models.query import RetrievalResults, RetrievalStrategy, SearchResult
 from .base_store import BaseVectorStore, VectorStoreError
-from .embeddings import GeminiEmbeddingService
+from .embeddings import HuggingFaceEmbeddingService
 
 
 class ChromaVectorStore(BaseVectorStore):
@@ -34,7 +31,8 @@ class ChromaVectorStore(BaseVectorStore):
         self.collection: Optional[chromadb.Collection] = None
         
         # Embedding service
-        self.embedding_service = GeminiEmbeddingService()
+        # self.embedding_service = GeminiEmbeddingService()
+        self.embedding_service = HuggingFaceEmbeddingService()
         
         # Statistics
         self.stats = {
@@ -362,7 +360,7 @@ class ChromaVectorStore(BaseVectorStore):
                     zip(ids, documents, metadatas, distances)
                 ):
                     # Convert distance to similarity score (ChromaDB uses cosine distance)
-                    similarity_score = 1.0 - distance
+                    similarity_score = abs(1.0 - distance)
                     
                     self.logger.debug(f"Result {i}: similarity={similarity_score:.4f}, threshold={similarity_threshold}")
                     
