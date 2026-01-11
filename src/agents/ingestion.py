@@ -1,36 +1,40 @@
-import asyncio 
-import time 
-import os 
-import json 
-from pathlib import Path 
-from typing import Dict, Any, List, Optional, Union
-import hashlib 
-import shutil 
+import asyncio
+import hashlib
+import json
+import os
+import shutil
+import time
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
+from ..agents.base_agent import BaseAgent
 from ..config.logging import LoggerMixin
-from ..config.settings import get_settings 
-
+from ..config.settings import get_settings
+from ..mcp.protocol import (
+    AgentType,
+    DocumentProcessingRequest,
+    MCPMessage,
+    MessageType,
+    create_error_message,
+    create_mcp_message,
+    create_response_message,
+)
 from ..models.document import (
-    Document, DocumentChunk, DocumentFormat, ProcessingStatus, 
-    ProcessingOptions, DocumentMetadata
+    Document,
+    DocumentChunk,
+    DocumentFormat,
+    DocumentMetadata,
+    ProcessingOptions,
+    ProcessingStatus,
 )
-
-from ..mcp.protocol import (MCPMessage, MessageType, AgentType, 
-    create_response_message, create_error_message, create_mcp_message,
-    DocumentProcessingRequest
-)
-
+from ..parsers.base_parser import ParseResult
 from ..parsers.registry import (
     ParserRegistry,
 )
-
-from ..parsers.base_parser import ParseResult
-
-from ..agents.base_agent import BaseAgent 
-
-from ..vector_store.embeddings import GeminiEmbeddingService
 from ..vector_store.chroma_store import ChromaVectorStore
+from ..vector_store.embeddings import HuggingFaceEmbeddingService
+
 
 class IngestionError(Exception):
     """Custom exception for ingestion process errors."""
@@ -271,7 +275,8 @@ class IngestionAgent(BaseAgent, LoggerMixin):
         self.processing_tasks: Dict[str, asyncio.Task] = {}
 
         # Embedding service
-        self.embedding_service = GeminiEmbeddingService()
+        # self.embedding_service = GeminiEmbeddingService()
+        self.embedding_service = HuggingFaceEmbeddingService()
         self.vector_store = ChromaVectorStore() 
         
         # Statistics
@@ -800,7 +805,7 @@ class IngestionAgent(BaseAgent, LoggerMixin):
             try:
                 parser = self.parser_registry.parsers[ext]()
                 parser_health[ext] = True
-            except Exception as e:
+            except Exception:
                 parser_health[ext] = False
         
         health_info['parser_availability'] = parser_health
@@ -1123,7 +1128,7 @@ class IngestionAgent(BaseAgent, LoggerMixin):
                     "start_char": chunk.start_char,
                     "end_char": chunk.end_char,
                     "page_number": chunk.page_number,
-                    "embedding_vector": chunk.embedding_vector,
+                    # "embedding_vector": chunk.embedding_vector,``
                     "embedding_model": chunk.embedding_model,
                     "created_at": chunk.created_at.isoformat()
                 }

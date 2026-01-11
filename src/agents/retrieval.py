@@ -1,20 +1,32 @@
+import re
+import time
+from typing import Any, Dict, List, Optional
+
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
-import time
-from typing import Dict, Any, List, Optional
-import re
 
 from ..config import get_settings
+from ..mcp.protocol import (
+    AgentType,
+    MCPMessage,
+    MessageType,
+    create_error_message,
+    create_response_message,
+)
 from ..models.document import DocumentChunk
 from ..models.query import (
-    Query, QueryFilters, QueryType, RetrievalStrategy, 
-    RetrievalResults, SearchResult, ConversationContext
+    ConversationContext,
+    Query,
+    QueryFilters,
+    QueryType,
+    RetrievalResults,
+    RetrievalStrategy,
+    SearchResult,
 )
-from ..mcp.protocol import (
-    MCPMessage, MessageType, AgentType, create_response_message, 
-    create_error_message
+from ..vector_store import (
+    ChromaVectorStore,
+    HuggingFaceEmbeddingService,
 )
-from ..vector_store import ChromaVectorStore, GeminiEmbeddingService
 from .base_agent import BaseAgent
 
 
@@ -190,7 +202,7 @@ class QueryProcessor:
 class RetrievalStrategyOperations:
     """Implements various retrieval strategies."""
     
-    def __init__(self, vector_store: ChromaVectorStore, embedding_service: GeminiEmbeddingService):
+    def __init__(self, vector_store: ChromaVectorStore, embedding_service: HuggingFaceEmbeddingService): #GeminiEmbeddingService):
         self.vector_store = vector_store
         self.embedding_service = embedding_service
     
@@ -517,7 +529,7 @@ class RetrievalAgent(BaseAgent):
         
         # Initialize components
         self.vector_store: Optional[ChromaVectorStore] = None
-        self.embedding_service: Optional[GeminiEmbeddingService] = None
+        self.embedding_service: Optional[HuggingFaceEmbeddingService] = None # Optional[GeminiEmbeddingService] = None
         self.query_processor = QueryProcessor()
         self.retrieval_strategy: Optional[RetrievalStrategyOperations] = None
         
@@ -551,7 +563,8 @@ class RetrievalAgent(BaseAgent):
                 return False
             
             # Initialize embedding service
-            self.embedding_service = GeminiEmbeddingService()
+            # self.embedding_service = GeminiEmbeddingService()
+            self.embedding_service = HuggingFaceEmbeddingService() 
             
             # Initialize retrieval strategies
             self.retrieval_strategy = RetrievalStrategyOperations(

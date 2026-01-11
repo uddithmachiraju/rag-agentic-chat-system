@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     huggingface_max_tokens: int = Field(2048, env="HUGGINGFACE_MAX_TOKENS")
     huggingface_temperature: float = Field(0.7, env="HUGGINGFACE_TEMPERATURE")
 
+    # chunking configuration
+    chunk_size: int = Field(500, env="CHUNK_SIZE")
+    chunk_overlap: int = Field(50, env="CHUNK_OVERLAP")
+
     # Vector database configuration
     vector_db_type: str = Field("chroma", env="VECTOR_DB_TYPE")
     vector_db_path: str = Field("./vector_db", env="VECTOR_DB_PATH")

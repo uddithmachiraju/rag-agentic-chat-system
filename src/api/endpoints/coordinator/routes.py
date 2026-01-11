@@ -1,13 +1,18 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+import shutil
+
 # from fastapi.responses import JSONResponse
 import uuid
-import shutil
 from pathlib import Path
-from typing import Optional 
+from typing import Optional
 
-from src.api.endpoints.coordinator.schemas import CoordinatorRequest, CoordinatorResponse
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
 from src.agents.agent_singleton import coordinator_agent
-from src.mcp.protocol import MCPMessage, MessageType, AgentType, create_mcp_message
+from src.api.endpoints.coordinator.schemas import (
+    CoordinatorRequest,
+    CoordinatorResponse,
+)
+from src.mcp.protocol import AgentType, MCPMessage, MessageType, create_mcp_message
 
 router = APIRouter()
 coordinator = coordinator_agent
@@ -73,6 +78,21 @@ async def get_document(document_id: str):
         raise HTTPException(status_code=500, detail=error_detail)
     # Return the full MCPMessage as a dict (model_dump), not just the payload
     return response.model_dump()
+
+@router.get("/ingestion/document/{document_id}/chunks", tags=["ingestion"])
+async def get_document_chunks(document_id: str, limit: int = 10, offset: int = 0):
+    """List chunks for a document (with pagination)."""
+    mcp_message = create_mcp_message(
+        sender=AgentType.COORDINATOR,
+        receiver=AgentType.COORDINATOR,
+        message_type=MessageType.REQUEST,
+        payload={"action": "list_document_chunks", "document_id": document_id, "page_size": limit, "page": offset}
+    )
+    response = await coordinator._handle_message(mcp_message)
+    if not response or response.message_type == MessageType.ERROR:
+        error_detail = response.payload.get("error", "List chunks failed") if response else "List chunks failed"
+        raise HTTPException(status_code=500, detail=error_detail)
+    return response.payload
 
 @router.get("/ingestion/document/{document_id}/status", tags=["ingestion"])
 async def get_document_status(document_id: str):

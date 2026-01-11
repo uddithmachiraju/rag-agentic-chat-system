@@ -1,17 +1,15 @@
 # src/services/query_service.py
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
-
-from src.config.settings import get_settings
-from src.config.logging import LoggerMixin
-
-from src.vector_store.embeddings import GeminiEmbeddingService
-from src.vector_store.chroma_store import ChromaVectorStore
+from typing import Any, Dict, Optional
 
 from src.agents.base_agent import BaseAgent
-from src.models.document import DocumentChunk 
-from src.mcp.protocol import MCPMessage, AgentType, MessageType
+from src.config.logging import LoggerMixin
+from src.config.settings import get_settings
+from src.mcp.protocol import AgentType, MCPMessage, MessageType
+from src.vector_store.chroma_store import ChromaVectorStore
+from src.vector_store.embeddings import HuggingFaceEmbeddingService
+
 
 class QueryServiceError(Exception):
     pass
@@ -19,11 +17,13 @@ class QueryServiceError(Exception):
 class QueryService(LoggerMixin):
     def __init__(self,
                  vector_store: Optional[ChromaVectorStore] = None,
-                 embedder: Optional[GeminiEmbeddingService] = None,
+                #  embedder: Optional[GeminiEmbeddingService] = None,
+                embedder: Optional[HuggingFaceEmbeddingService] = None,
                  llm_agent: Optional[BaseAgent] = None):
         self.settings = get_settings()
         self.vector_store = vector_store or ChromaVectorStore()
-        self.embedder = embedder or GeminiEmbeddingService()
+        # self.embedder = embedder or GeminiEmbeddingService()
+        self.embedder = embedder or HuggingFaceEmbeddingService()
         self.llm_agent = llm_agent   # e.g., your LLMResponseAgent instance
 
         self.initialized = False
